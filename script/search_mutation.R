@@ -69,11 +69,12 @@ searchMUT_CODON<-function(vcf,mut_table,mutation){
   
   table_vcf_mut$REF_AA<-sapply(table_vcf_mut$CODON_REF,getAA)
   table_vcf_mut$ALT_AA<-sapply(table_vcf_mut$CODON_ALT,getAA)
+  table_vcf_mut$warning<-ifelse(table_vcf_mut$REF_AA==table_vcf_mut$ALT_AA,"OK","alerte!")
   
   table_vcf_mut$Mutation_name<-paste0(table_vcf_mut$REF_AA,as.character(table_vcf_mut$NUM_CODON),table_vcf_mut$ALT_AA)
   
   table_vcf_mut<-table_vcf_mut[,c("REFERENCE","REF_POS","REF","total_count",
-                                  "base_status","base","count","NUM_CODON","POS_TYPE","REF_AA","ALT_AA","Mutation_name","freq")]
+                                  "base_status","base","count","NUM_CODON","POS_TYPE","REF_AA","ALT_AA","Mutation_name","freq","warning")]
   table_vcf_mut<-table_vcf_mut[with(table_vcf_mut, order(REF_POS,POS_TYPE)),]
   return(table_vcf_mut)
 }
