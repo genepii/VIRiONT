@@ -14,6 +14,8 @@ data_loc : fastq/ONT_run_240130_WG/
 result_loc : results_VHB_240130_WG/
 #custom reference file to use /  Path to fastafile containing reference sequences for blast
 ref_loc : data/ref/HBV_subtype.fasta
+#path to human genome for dehosting
+pipeline_loc : ""
 #core number / Define number of threads to use for the analysis
 thread_number : 32
 #memory cost in mb / Define number of threads to use for the analysis
