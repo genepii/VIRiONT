@@ -200,7 +200,7 @@ rule getfastqlist:
     #conda:
     #    "env/Renv.yaml"  
     params:
-		VIRiONT_path = pipeline_loc
+        VIRiONT_path = pipeline_loc
     shell:
         """
         Rscript {params.VIRiONT_path}script/get_read_list.R {input.blastn_result} {wildcards.reference} {output.fastqlist}
@@ -314,7 +314,7 @@ rule plot_coverage:
     #conda:
     #    "env/Renv.yaml"
     params:
-		VIRiONT_path = pipeline_loc 
+        VIRiONT_path = pipeline_loc 
     shell:
         """
         cat {input.cov} > {output.cov_sum}
@@ -346,7 +346,7 @@ rule generate_consensus:
         fasta_cons = resultpath+"06_PRECONSENSUS/SEQUENCES/{barcode}/{reference}_cons.fasta",
         vcf = resultpath+"06_PRECONSENSUS/VCF/{barcode}/{reference}_sammpileup.vcf_variants.txt"
     params:
-		VIRiONT_path = pipeline_loc
+        VIRiONT_path = pipeline_loc
     shell:
         """
         perl {params.VIRiONT_path}script/pathogen_varcaller_MINION.PL {input} 0.5 {output.fasta_cons_temp} {mincov_cons}
@@ -393,7 +393,7 @@ rule generate_finalconsensus:
         fasta_cons_temp = temp(resultpath+"09_CONSENSUS/{barcode}/{reference}_cons_temp.fasta") ,
         fasta_cons = resultpath+"09_CONSENSUS/{barcode}/{reference}_cons.fasta"
     params:
-		VIRiONT_path = pipeline_loc
+        VIRiONT_path = pipeline_loc
     shell:
         """
         perl {params.VIRiONT_path}script/pathogen_varcaller_MINION.PL {input} {variant_frequency} {output.fasta_cons_temp} {mincov_cons}
@@ -489,7 +489,7 @@ rule compute_metric:
     #conda:
     #    "env/Renv.yaml"
     params:
-		VIRiONT_path = pipeline_loc
+        VIRiONT_path = pipeline_loc
     shell:
         """
         Rscript {params.VIRiONT_path}script/compute_metrics.R {input.allraw} {input.alldehost} \
@@ -575,7 +575,7 @@ rule plotTree:
     #conda:
     #    "env/ETE3.yaml"
     params:
-		VIRiONT_path = pipeline_loc
+        VIRiONT_path = pipeline_loc
     shell:
         "python3 {params.VIRiONT_path}script/makeTREE.py {input.NWK_data} {output.tree_pdf} "
 
@@ -596,8 +596,8 @@ rule search_HBV_mutation:
         vcf = rules.copy_vcf_result.output.vcf,
         #table_mut = mutation_table_path + "mutation_{reference}.csv"
     params:
-        table_mut = mutation_table_path 
-		VIRiONT_path = pipeline_loc
+        table_mut = mutation_table_path,
+        VIRiONT_path = pipeline_loc
     output:
         #raw
         result_PC = resultpath+"13_MUTATION_SCREENING/{barcode}/all_results/{barcode}_{reference}_PreCore.csv",
