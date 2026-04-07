@@ -29,6 +29,8 @@ if (mutation_table_path[-1] != "/"):
 	mutation_table_path=mutation_table_path+"/"
 min_freq=config['freq_min']
 window=config['window_pos']
+#slurm needs
+pipeline_loc=config['pipeline_loc']
 
 #Check if input data are present / get all barcodes in a list after demultiplexing 
 barcode_list = glob.glob(datapath+"barcode*")
@@ -242,35 +244,35 @@ rule merging_fastq:
 		gzip -c {output.merged_fastq} > {output.merged_fastq_compressed}
 		"""
 
-rule get_hg19:
-	message:
-		"Download if necessary the hg19 reference genome. Stored in the VIRiONT/ref/ folder. Executed once per VIRiONT installation."
-	output:
-		hg19_ref =  "ref/hg19.fa"
-	shell:
-		"""
-		wget -P ref/ http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.fa.gz
-		gunzip ref/hg19.fa.gz       
-		"""
+#rule get_hg19:
+#	message:
+#		"Download if necessary the hg19 reference genome. Stored in the VIRiONT/ref/ folder. Executed once per VIRiONT installation."
+#	output:
+#		hg19_ref =  "ref/hg19.fa"
+#	shell:
+#		"""
+#		wget -P ref/ http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.fa.gz
+#		gunzip ref/hg19.fa.gz       
+#		"""
 
-rule index_hg19:
-	message:
-		"Indexing the hg19 reference genome for a quicker dehosting. Executed once per VIRiONT installation."
-	input:
-		hg19 = rules.get_hg19.output.hg19_ref
-	output:
-		hg19_index = "ref/hg19.mmi"
+#rule index_hg19:
+#	message:
+#		"Indexing the hg19 reference genome for a quicker dehosting. Executed once per VIRiONT installation."
+#	input:
+#		hg19 = rules.get_hg19.output.hg19_ref
+#	output:
+#		hg19_index = "ref/hg19.mmi"
 	#conda:
 	#	"env/minimap2.yaml"
-	shell:
-		"minimap2 -d {output} {input}"
+#	shell:
+#		"minimap2 -d {output} {input}"
 
 rule hg19_dehosting:
 	message:
 		"Aligning reads from {wildcards.barcode} fastq on human genome for identifying host reads using minimap2."
 	input:
 		merged_fastq = rules.merging_fastq.output.merged_fastq_compressed ,
-		ref_file= rules.index_hg19.output.hg19_index
+		ref_file=  pipeline_loc +"ref/hg19.mmi"
 	output:
 		human_bam = temp(resultpath+"02_DEHOSTING/{barcode}_human.bam")
 	#conda:
@@ -349,10 +351,12 @@ rule split_reference:
 		ref_file= refpath
 	output:
 		ref_rep=directory(resultpath+"00_SUPDATA/REFSEQ/")
+	params:
+		VIRiONT_path = pipeline_loc
 	shell:
 		"""
 		mkdir -p {output} 
-		script/split_reference.py {input} {output} 
+		{params.VIRiONT_path}script/split_reference.py {input} {output} 
 		"""
 
 rule make_db:
@@ -400,13 +404,15 @@ rule count_refmatching:
 	output:
 		ref_count = temp(resultpath+"04_BLASTN_ANALYSIS/{barcode}_refcount.tsv"),
 		blastn_result = resultpath+"04_BLASTN_ANALYSIS/{barcode}_blastnR.tsv"
+	params:
+		VIRiONT_path = pipeline_loc
 	#conda:
 	#	"env/Renv.yaml"     
 	shell:
 		"""
 		if [ -s {input.R_data} ] 
 		then
-			Rscript script/count_ref.R {input.R_data} \
+			Rscript {params.VIRiONT_path}script/count_ref.R {input.R_data} \
 				{input.ref_table}/R_table_analysis.csv \
 				{wildcards.barcode} \
 				{output.ref_count} \
@@ -428,11 +434,13 @@ rule MI_analysis:
 		plot_pdf = resultpath+"04_BLASTN_ANALYSIS/read_repartition.pdf",
 		summ_multiinf = resultpath+"04_BLASTN_ANALYSIS/SUMMARY_Multi_Infection.tsv"
 	#conda:
-	#	"env/Renv.yaml"   
+	#	"env/Renv.yaml" 
+	params:
+		VIRiONT_path = pipeline_loc  
 	shell:
 		"""
 		cat {input.count_ref_data} > {output.merged_data}
-		Rscript script/MI_analysis.R {output.merged_data} \
+		Rscript {params.VIRiONT_path}script/MI_analysis.R {output.merged_data} \
 			{MI_cutoff} \
 			{output.plot_pdf} \
 			{output.summ_multiinf}

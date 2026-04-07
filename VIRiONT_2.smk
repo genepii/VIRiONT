@@ -30,6 +30,8 @@ if (mutation_table_path[-1] != "/"):
 	mutation_table_path=mutation_table_path+"/"
 min_freq=config['freq_min']
 window=config['window_pos']
+#slurm needs
+pipeline_loc=config['pipeline_loc']
 
 #CANU
 max_threads=int(int(config['thread_number'])/2)
@@ -197,9 +199,11 @@ rule getfastqlist:
         fastqlist = temp(resultpath +"READLIST/{barcode}/{reference}_readlist.txt" )
     #conda:
     #    "env/Renv.yaml"  
+    params:
+		VIRiONT_path = pipeline_loc
     shell:
         """
-        Rscript script/get_read_list.R {input.blastn_result} {wildcards.reference} {output.fastqlist}
+        Rscript {params.VIRiONT_path}script/get_read_list.R {input.blastn_result} {wildcards.reference} {output.fastqlist}
         """
 
 rule extract_matching_read:
@@ -308,11 +312,13 @@ rule plot_coverage:
         cov_sum = resultpath+"12_COVERAGE/cov_sum.cov" ,
         cov_plot = resultpath+"12_COVERAGE/cov_plot.pdf"
     #conda:
-    #    "env/Renv.yaml" 
+    #    "env/Renv.yaml"
+    params:
+		VIRiONT_path = pipeline_loc 
     shell:
         """
         cat {input.cov} > {output.cov_sum}
-        Rscript script/plot_cov_MI.R {output.cov_sum} {output.cov_plot}
+        Rscript {params.VIRiONT_path}script/plot_cov_MI.R {output.cov_sum} {output.cov_plot}
         """
 
 rule variant_calling:
@@ -339,9 +345,11 @@ rule generate_consensus:
         fasta_cons_temp = temp(resultpath+"06_PRECONSENSUS/SEQUENCES/{barcode}/{reference}_cons_temp.fasta") ,
         fasta_cons = resultpath+"06_PRECONSENSUS/SEQUENCES/{barcode}/{reference}_cons.fasta",
         vcf = resultpath+"06_PRECONSENSUS/VCF/{barcode}/{reference}_sammpileup.vcf_variants.txt"
+    params:
+		VIRiONT_path = pipeline_loc
     shell:
         """
-        perl script/pathogen_varcaller_MINION.PL {input} 0.5 {output.fasta_cons_temp} {mincov_cons}
+        perl {params.VIRiONT_path}script/pathogen_varcaller_MINION.PL {input} 0.5 {output.fasta_cons_temp} {mincov_cons}
         sed  's/>.*/>{wildcards.barcode}_PRECONS/' {output.fasta_cons_temp} > {output.fasta_cons}
         """
 
@@ -384,9 +392,11 @@ rule generate_finalconsensus:
     output:
         fasta_cons_temp = temp(resultpath+"09_CONSENSUS/{barcode}/{reference}_cons_temp.fasta") ,
         fasta_cons = resultpath+"09_CONSENSUS/{barcode}/{reference}_cons.fasta"
+    params:
+		VIRiONT_path = pipeline_loc
     shell:
         """
-        perl script/pathogen_varcaller_MINION.PL {input} {variant_frequency} {output.fasta_cons_temp} {mincov_cons}
+        perl {params.VIRiONT_path}script/pathogen_varcaller_MINION.PL {input} {variant_frequency} {output.fasta_cons_temp} {mincov_cons}
         sed  's/>.*/>{wildcards.barcode}_{wildcards.reference}_ONT{variant_frequency}/' {output.fasta_cons_temp} > {output.fasta_cons}
         """
 
@@ -478,9 +488,11 @@ rule compute_metric:
         full_summ_table = resultpath+"10_QC_ANALYSIS/METRIC_summary_table.csv",
     #conda:
     #    "env/Renv.yaml"
+    params:
+		VIRiONT_path = pipeline_loc
     shell:
         """
-        Rscript script/compute_metrics.R {input.allraw} {input.alldehost} \
+        Rscript {params.VIRiONT_path}script/compute_metrics.R {input.allraw} {input.alldehost} \
             {input.alltrim} {input.allrefilter} {output.full_summ_table}
         """
 
@@ -562,8 +574,10 @@ rule plotTree:
         tree_pdf = resultpath+"11_PHYLOGENETIC_TREE/RADIAL_tree.pdf"
     #conda:
     #    "env/ETE3.yaml"
+    params:
+		VIRiONT_path = pipeline_loc
     shell:
-        "python3 script/makeTREE.py {input.NWK_data} {output.tree_pdf} "
+        "python3 {params.VIRiONT_path}script/makeTREE.py {input.NWK_data} {output.tree_pdf} "
 
 rule copy_vcf_result:
     message:
@@ -583,6 +597,7 @@ rule search_HBV_mutation:
         #table_mut = mutation_table_path + "mutation_{reference}.csv"
     params:
         table_mut = mutation_table_path 
+		VIRiONT_path = pipeline_loc
     output:
         #raw
         result_PC = resultpath+"13_MUTATION_SCREENING/{barcode}/all_results/{barcode}_{reference}_PreCore.csv",
@@ -606,7 +621,7 @@ rule search_HBV_mutation:
     #    "env/Renv.yaml"
     shell:
         """
-        Rscript script/search_mutation.R {input.vcf} {params.table_mut} {min_freq} {window} \
+        Rscript {params.VIRiONT_path}script/search_mutation.R {input.vcf} {params.table_mut} {min_freq} {window} \
             {output.result_PC} {output.result_BCP} {output.result_DS} {output.result_RT} \
             {output.result_DPS1} {output.result_DPS2} {output.result_DHBx} {output.result_C} \
             {output.result_PC_F} {output.result_BCP_F} {output.result_DS_F} {output.result_RT_F} \
