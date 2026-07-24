@@ -1,9 +1,0 @@
-name: muscle
-channels:
-  - bioconda
-  - defaults
-dependencies:
-  - _libgcc_mutex=0.1=main
-  - libgcc-ng=9.1.0=hdf63c60_0
-  - libstdcxx-ng=9.1.0=hdf63c60_0
-  - muscle=3.8.1551=hc9558a2_5
