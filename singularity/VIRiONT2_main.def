@@ -1,0 +1,59 @@
+Bootstrap: docker
+From: continuumio/miniconda3:latest
+Stage: condabuild
+
+%files
+VIRiONT2_main.yml /VIRiONT2_main.yml
+
+%post
+# 1. Création de l'environnement Conda
+/opt/conda/bin/conda env create -f /VIRiONT2_main.yml
+
+# 2. Téléchargement d'amplicon_sorter.py via wget
+mkdir -p /opt/amplicon_sorter
+/opt/conda/envs/VIRiONT2_main/bin/wget -q https://raw.githubusercontent.com/avierstr/amplicon_sorter/master/amplicon_sorter.py -O /opt/amplicon_sorter/amplicon_sorter.py
+
+
+Bootstrap: docker
+From: rockylinux:8
+Stage: V1
+
+%files from condabuild
+/opt/conda/envs/VIRiONT2_main /opt/conda/envs/VIRiONT2_main
+/opt/amplicon_sorter /opt/amplicon_sorter
+
+%environment
+export PATH=/opt/conda/envs/VIRiONT2_main/bin:/opt/sra-human-scrubber/scripts/:$PATH
+export JAVA_HOME=/opt/conda/envs/VIRiONT2_main
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+
+%post
+dnf update -y
+dnf install -y epel-release
+# Activation du dépôt CRB requis sous Rocky 8
+dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
+
+dnf groupinstall -y "Development Tools"
+# Paquets système essentiels
+dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
+
+# Dossiers requis pour les points de montage
+mkdir -p /media /mnt /srv /data /scratch
+
+# --- Configuration d'Amplicon_sorter ---
+# Conversion des fin de lignes Windows (CRLF) vers Unix (LF)
+sed -i 's/\r$//' /opt/amplicon_sorter/amplicon_sorter.py
+
+chmod +x /opt/amplicon_sorter/amplicon_sorter.py
+ln -s /opt/amplicon_sorter/amplicon_sorter.py /opt/conda/envs/VIRiONT2_main/bin/amplicon_sorter.py
+
+%help
+    SUMMARY
+    Conteneur de production optimisé pour le pipeline Nextflow VIRiONT2 avec Amplicon_sorter.
+    Basé sur Rocky Linux 8.
+
+%labels
+    Version 2.0.0
+    Author SoufianeAlami
+    Date 2026-07-27

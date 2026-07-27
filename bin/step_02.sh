@@ -14,15 +14,11 @@ SUPDATA_REFSEQ="${RESULTS_DIR}/00_SUPDATA/REFSEQ"
 SUPDATA_DB="${RESULTS_DIR}/00_SUPDATA/DB"
 DEHOST_DIR="${RESULTS_DIR}/02_DEHOSTING"
 TRIMMED_DIR="${RESULTS_DIR}/03_FILTERED_TRIMMED"
-BLAST_DIR="${RESULTS_DIR}/04_BLASTN_ANALYSIS"
-REFILTERED_DIR="${RESULTS_DIR}/05_REFILTERED_FASTQ"
-
-# Paramètres de VIRiONT
-BITSCORE_MIN=200
-MI_CUTOFF=10 # Seuil Multi-Infection (%)
+AMPLICON_DIR="${RESULTS_DIR}/04_AMPLICON_SORTER"
+GENOTYPING_DIR="${RESULTS_DIR}/05_FINAL_GENOTYPING"
 
 # Création des dossiers de sortie
-mkdir -p "$SUPDATA_REFSEQ" "$SUPDATA_DB" "$TRIMMED_DIR" "$BLAST_DIR" "$REFILTERED_DIR"
+mkdir -p "$SUPDATA_REFSEQ" "$SUPDATA_DB" "$TRIMMED_DIR" "$AMPLICON_DIR" "$GENOTYPING_DIR"
 
 if [ ! -f "$CSV_FILE" ]; then
     echo "❌ Erreur : Fichier CSV introuvable ($CSV_FILE)."
@@ -70,7 +66,7 @@ TARGET_REFSEQ="${SUPDATA_REFSEQ}/${ref_filename}"
 DB_PREFIX="${SUPDATA_DB}/${ref_filename%.fasta}"
 
 # -----------------------------------------------------------------
-# 2. PRÉPARATION GLOBALE DE 00_SUPDATA (REFSEQ ET DB BLAST)
+# 2. PRÉPARATION GLOBALE DE 00_SUPDATA (INDEXATION BASE GÉNOTYPES)
 # -----------------------------------------------------------------
 if [ ! -f "$ORIGINAL_REF" ]; then
     echo "❌ Fichier source $ORIGINAL_REF introuvable dans $REF_SOURCE_DIR !"
@@ -83,21 +79,20 @@ if [ ! -f "$TARGET_REFSEQ" ]; then
 fi
 
 if [ ! -f "${DB_PREFIX}.nhr" ]; then
-    echo "--> [00_SUPDATA/DB] Indexation BLAST (makeblastdb)..."
+    echo "--> [00_SUPDATA/DB] Indexation BLAST de la base interne des génotypes..."
     makeblastdb -in "$TARGET_REFSEQ" -out "$DB_PREFIX" -input_type fasta -dbtype nucl > /dev/null
 fi
 
 echo "====================================================================="
-echo "  EXECUTION ÉTAPE 02 (Filtrage & Sélection Génotype + Multi-Infection)"
-echo "  Fichier CSV   : $(basename "$CSV_FILE")"
-echo "  Virus / Tech  : $virus_name | $tech_name"
-echo "  Réf BLAST     : $ref_filename"
-echo "  Filtre Taille : -l $min_length --maxlength $max_length"
-echo "  Seuil MI      : >= ${MI_CUTOFF}%"
+echo "  EXECUTION ÉTAPE 02 (Chopper -> Amplicon_sorter -> BLAST Genotyping)"
+echo "  Fichier CSV    : $(basename "$CSV_FILE")"
+echo "  Virus / Tech   : $virus_name | $tech_name"
+echo "  Base Génotypes : $ref_filename"
+echo "  Filtre Taille  : Min = $min_length pb | Max = $max_length pb"
 echo "====================================================================="
 
 # =====================================================================
-# 3. BOUCLE DE TRAITEMENT SUR LES SAMPLES
+# 3. BOUCLE DE TRAITEMENT SUR LES ÉCHANTILLONS
 # =====================================================================
 tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forward reverse flowcell kit_id primers; do
     
@@ -120,89 +115,100 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
     fi
 
     TRIMMED_FASTQ="${TRIMMED_DIR}/${sample_id}_trimmed.fastq.gz"
-    FASTA_FILE="${BLAST_DIR}/${sample_id}_trimmed.fasta"
-    BLAST_RAW="${BLAST_DIR}/${sample_id}_fmt.txt"
-    BEST_HITS_FILE="${BLAST_DIR}/${sample_id}_best_hits.tsv"
-
-    SAMPLE_REFILTER_DIR="${REFILTERED_DIR}/${sample_id}"
-    mkdir -p "$SAMPLE_REFILTER_DIR"
+    SAMPLE_AMPLICON_DIR="${AMPLICON_DIR}/${sample_id}"
 
     echo "---------------------------------------------------------------------"
-    echo "Traitement $sample_id"
+    echo "Traitement : $sample_id"
     echo "---------------------------------------------------------------------"
 
-    # --- ÉTAPE 03 : Chopper ---
-    echo "--> [03_FILTERED_TRIMMED] Filtration par taille (chopper)..."
+    # --- ÉTAPE 03 : Chopper (Filtrage par longueur) ---
+    echo "--> [03_FILTERED_TRIMMED] Filtration par taille avec chopper..."
     gunzip -c "$DEHOSTED_FASTQ" | chopper -l "$min_length" --maxlength "$max_length" | gzip -c > "$TRIMMED_FASTQ"
 
     if [ ! -s "$TRIMMED_FASTQ" ]; then
         echo "⚠️ Aucun read conservé par chopper pour $sample_id."
+        rm -f "$TRIMMED_FASTQ"
         continue
     fi
 
-    # --- ÉTAPE 04 : BLASTn ---
-    echo "--> [04_BLASTN_ANALYSIS] Conversion FASTQ -> FASTA (seqkit)..."
-    seqkit fq2fa "$TRIMMED_FASTQ" -o "$FASTA_FILE"
+    # --- ÉTAPE 04 : Amplicon_sorter (Clustering De Novo WG sur TOUS les reads) ---
+    echo "--> [04_AMPLICON_SORTER] Clustering & Génération du consensus De Novo..."
+    mkdir -p "$SAMPLE_AMPLICON_DIR"
 
-    echo "--> [04_BLASTN_ANALYSIS] Alignement BLASTn..."
-    blastn -query "$FASTA_FILE" \
-           -db "$DB_PREFIX" \
-           -outfmt "6 qseqid sseqid bitscore slen qlen length pident" \
-           -num_threads 4 \
-           -out "$BLAST_RAW"
+    amplicon_sorter.py \
+        -i "$TRIMMED_FASTQ" \
+        -o "$SAMPLE_AMPLICON_DIR" \
+        -min "$min_length" \
+        -max "$max_length" \
+        -maxr 1000000 \
+        -ar \
+        -ssg 85 \
+        -ss 85 \
+        -sc 92 \
+        -np 4
 
-    if [ ! -s "$BLAST_RAW" ]; then
-        echo "⚠️ Aucun match BLAST pour $sample_id."
-        rm -f "$FASTA_FILE"
+    CONSENSUS_FILES=$(find "$SAMPLE_AMPLICON_DIR" -maxdepth 2 \( -name "*.fasta" -o -name "*.fa" \) ! -name "*unique*" || true)
+
+    if [ -z "$CONSENSUS_FILES" ]; then
+        echo "⚠️ Aucun consensus produit par amplicon_sorter pour $sample_id."
+        rm -f "$TRIMMED_FASTQ"
         continue
     fi
 
-    # --- ÉTAPE 05 : Filtrage Bitscore MAX & Analyse Multi-Infection ---
-    echo "--> [05_REFILTERED_FASTQ] Analyse des génotypes (Règle Multi-Infection)..."
+    # --- ÉTAPE 05 : BLASTn & Sélection du Cluster Maître ---
+    echo "--> [05_FINAL_GENOTYPING] Identification des génotypes via BLASTn..."
     
-    # 1. Filtre Bitscore >= 200 + Meilleur Hit Unique par Read
-    awk -v min_score="$BITSCORE_MIN" '$3 >= min_score' "$BLAST_RAW" | \
-    sort -k1,1 -k3,3nr | \
-    sort -u -k1,1 > "$BEST_HITS_FILE"
+    COMBINED_BLAST="${GENOTYPING_DIR}/${sample_id}_all_consensus_blast.tsv"
+    rm -f "$COMBINED_BLAST"
 
-    if [ ! -s "$BEST_HITS_FILE" ]; then
-        echo "⚠️ Aucun match au-dessus du bitscore min ($BITSCORE_MIN) pour $sample_id."
-        rm -f "$FASTA_FILE" "$BEST_HITS_FILE"
-        continue
-    fi
-
-    # 2. Total des reads valides
-    TOTAL_READS=$(wc -l < "$BEST_HITS_FILE")
-    echo "    📊 Total reads alignés : $TOTAL_READS"
-
-    # 3. Traitement de TOUS les génotypes >= MI_CUTOFF (%)
-    cut -f2 "$BEST_HITS_FILE" | sort | uniq -c | sort -nr | while read -r count gen; do
-        
-        # Calcul du pourcentage
-        pct=$(awk -v c="$count" -v t="$TOTAL_READS" 'BEGIN { printf "%.2f", (c/t)*100 }')
-        is_above=$(awk -v p="$pct" -v cutoff="$MI_CUTOFF" 'BEGIN { print (p >= cutoff) ? "YES" : "NO" }')
-
-        if [ "$is_above" == "YES" ]; then
-            echo "    🏆 Génotype sélectionné : $gen ($count reads, $pct%)"
-
-            READ_IDS_FILE="${BLAST_DIR}/${sample_id}_${gen}_readlist.txt"
-            awk -v g="$gen" '$2 == g {print $1}' "$BEST_HITS_FILE" > "$READ_IDS_FILE"
-
-            FINAL_GENOTYPE_FASTQ="${SAMPLE_REFILTER_DIR}/${gen}_filtered.fastq.gz"
-            seqkit grep -f "$READ_IDS_FILE" "$TRIMMED_FASTQ" -o "$FINAL_GENOTYPE_FASTQ"
-            
-            rm -f "$READ_IDS_FILE"
-            echo "       ✅ FASTQ généré : $(basename "$FINAL_GENOTYPE_FASTQ")"
-        else
-            echo "    ⏩ Génotype ignoré (sous le seuil de ${MI_CUTOFF}%) : $gen ($count reads, $pct%)"
-        fi
+    # Exécution de BLASTn sur chaque consensus et capture sécurisée du 1er hit
+    for cons_file in $CONSENSUS_FILES; do
+        blastn -query "$cons_file" \
+               -db "$DB_PREFIX" \
+               -outfmt "6 qseqid sseqid pident length evalue bitscore" \
+               -max_hsps 1 2>/dev/null | head -n 1 >> "$COMBINED_BLAST" || true
     done
 
-    # Nettoyage des fichiers temporaires
-    rm -f "$FASTA_FILE" "$BEST_HITS_FILE"
+    BEST_HIT_FILE="${GENOTYPING_DIR}/${sample_id}_best_genotype.tsv"
+    
+    if [ -s "$COMBINED_BLAST" ]; then
+        sort -k6,6nr -k4,4nr "$COMBINED_BLAST" | head -n 1 > "$BEST_HIT_FILE"
+    fi
+
+    if [ -s "$BEST_HIT_FILE" ]; then
+        best_cluster=$(awk '{print $1}' "$BEST_HIT_FILE")
+        genotype=$(awk '{print $2}' "$BEST_HIT_FILE")
+        pident=$(awk '{print $3}' "$BEST_HIT_FILE")
+        length=$(awk '{print $4}' "$BEST_HIT_FILE")
+        
+        echo "   🎯 Cluster Maître Retenu : $best_cluster"
+        echo "   🏆 Génotype Identifié   : $genotype"
+        echo "   📊 Qualité Alignement  : Identité = ${pident}% | Longueur = ${length} pb"
+        
+        MASTER_FASTA="${GENOTYPING_DIR}/${sample_id}_${genotype}_master_consensus.fasta"
+        
+        # Extraction du FASTA consensus maître depuis le fichier global
+        awk -v target=">$best_cluster" '
+            $0 ~ target {flag=1; print; next}
+            /^>/ {flag=0}
+            flag {print}
+        ' "$SAMPLE_AMPLICON_DIR"/*consensusfile.fasta > "$MASTER_FASTA" 2>/dev/null || true
+
+        # Fallback de sécurité si l'extraction par AWK échoue
+        if [ ! -s "$MASTER_FASTA" ]; then
+            cp $(echo "$CONSENSUS_FILES" | head -n 1) "$MASTER_FASTA"
+        fi
+        
+        echo "   ✅ Fichier Maître créé  : $(basename "$MASTER_FASTA")"
+    else
+        echo "⚠️ Aucun résultat BLAST valide obtenu pour $sample_id."
+    fi
+
+    # Nettoyage du fichier FASTQ temporaire
+    rm -f "$TRIMMED_FASTQ"
 
 done
 
 echo "====================================================================="
-echo "  Étape 02 terminée avec succès !"
+echo " 🎉 Étape 02 terminée avec succès !"
 echo "====================================================================="

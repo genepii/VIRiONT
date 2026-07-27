@@ -1,8 +1,10 @@
 results_test/
-singularity/
+ref_GRCh38/
+fastq_pass/
 .nextflow/
 *.sif
 *.gz
 *.bam
 *.bai
 *.fasta
+*.fastq.gz
