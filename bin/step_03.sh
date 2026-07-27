@@ -165,3 +165,6 @@ cat "${CONSENSUS_DIR}"/*/*_cons.fasta > "${CONSENSUS_DIR}/all_cons.fasta" 2>/dev
 echo "====================================================================="
 echo " 🎉 Étape 03 terminée avec succès !"
 echo "====================================================================="
+
+
+#Soufiane
