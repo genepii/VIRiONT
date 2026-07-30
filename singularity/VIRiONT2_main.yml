@@ -21,3 +21,14 @@ dependencies:
   - python-edlib
   - biopython
   - matplotlib
+
+  # --- Alignement Multiple & Phylogénie (IQ-TREE 3.1.3) ---
+  - mafft>=7.520
+  - iqtree=3.1.3
+
+  # --- Dépendances R pour métrologie & génération d'arbres ---
+  - r-base>=4.3
+  - r-ggplot2
+  - r-gridextra
+  - r-ape
+  - r-phangorn

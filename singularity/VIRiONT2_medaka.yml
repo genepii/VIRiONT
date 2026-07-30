@@ -4,8 +4,14 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - python=3.12          # Aligné sur les exigences strictes de Medaka 2.2.2
-  - medaka=2.2.2
+  - python=3.11
+  - clair3=2.0.2
   - freebayes=1.3.10
   - minimap2=2.31
-  - samtools>=1.23,<1.24  # Toujours bridé sous 1.24 pour la cohérence htslib exigée par Medaka
+  - samtools>=1.23,<1.24
+  - bcftools>=1.20       # Indispensable pour la vérification des dépendances de Medaka 2.2.2
+  - htslib
+  - pyabpoa              # Précompilé via Bioconda (évite les erreurs de build pip)
+  - pip
+  - pip:
+      - medaka==2.2.2

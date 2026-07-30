@@ -1,17 +1,20 @@
 #!/usr/bin/env Rscript
 
-# Capture des arguments transmis par le Bash
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(gridExtra)
+})
+
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 3) {
-  stop("Usage: Rscript generate_report.R <data_file.tsv> <cutoff_percentage> <output_report.pdf>")
+  stop("Usage: Rscript generate_report.R <validated_summary.tsv> <cutoff_percent> <output_report.pdf>")
 }
 
 data_file <- args[1]
 cutoff    <- as.numeric(args[2])
 pdf_out   <- args[3]
 
-# Vérification de l'existence du fichier de données
 if (!file.exists(data_file)) {
   quit(save = "no", status = 0)
 }
@@ -22,28 +25,34 @@ if (nrow(df) == 0) {
   quit(save = "no", status = 0)
 }
 
-# Nettoyage et conversion du ratio en valeur numérique
+# Extraction propre du ratio numérique
 df$ratio_num <- as.numeric(gsub("%", "", df$ratio_percent))
 samplename <- df$sample[1]
 
-# Génération du rapport PDF
-pdf(pdf_out, width = 9, height = 10)
-par(mfrow = c(2, 1), mar = c(5, 5, 4, 2))
+# Graphique 1 : Distribution des Reads
+p1 <- ggplot(df, aes(x = factor(genotype), y = total_reads, fill = factor(status))) +
+  geom_bar(stat = "identity", color = "black", width = 0.4) +
+  scale_fill_manual(values = c("VALIDATED" = "#2b5c8f", "REJECTED" = "#e74c3c")) +
+  geom_text(aes(label = total_reads), vjust = -0.5, fontface = "bold", size = 3.5) +
+  labs(title = paste("Échantillon :", samplename, "\nDistribution des Reads par Génotype"),
+       x = "Génotype Identifié", y = "Nombre de Reads", fill = "Statut") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-# Graphique 1 : Nombre de Reads par Génotype
-colors_status <- ifelse(df$status == "VALIDATED", "#2b5c8f", "#e74c3c")
-b1 <- barplot(df$total_reads, names.arg = df$genotype, col = colors_status,
-              main = paste("Échantillon :", samplename, "\nDistribution des Reads par Génotype"),
-              ylab = "Nombre de Reads", las = 1, cex.names = 0.9)
-text(b1, df$total_reads / 2, labels = df$total_reads, col = "white", font = 2)
-legend("topright", legend = c("VALIDATED", "REJECTED"), fill = c("#2b5c8f", "#e74c3c"), bty = "n")
+# Graphique 2 : Ratio % vs Seuil Clinique
+p2 <- ggplot(df, aes(x = factor(genotype), y = ratio_num, fill = factor(status))) +
+  geom_bar(stat = "identity", color = "black", width = 0.4) +
+  scale_fill_manual(values = c("VALIDATED" = "#41b6c4", "REJECTED" = "#e74c3c")) +
+  geom_hline(yintercept = cutoff, linetype = "dashed", color = "red", linewidth = 1.2) +
+  geom_text(aes(label = paste0(ratio_num, "%")), vjust = -0.5, fontface = "bold", size = 3.5) +
+  labs(title = paste("Ratio d'Infection Relative (Seuil Clinique =", cutoff, "%)"),
+       x = "Génotype Identifié", y = "% / Génotype Majeur", fill = "Statut") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-# Graphique 2 : Ratio % par rapport au génotype majeur vs Seuil Clinique
-b2 <- barplot(df$ratio_num, names.arg = df$genotype, col = colors_status,
-              main = paste("Ratio d'Infection Relative (Seuil Clinique =", cutoff, "%)"),
-              ylab = "% / Génotype Majeur", ylim = c(0, max(df$ratio_num) * 1.25), las = 1, cex.names = 0.9)
-abline(h = cutoff, col = "red", lty = 2, lwd = 2)
-text(b2, df$ratio_num + 4, labels = paste0(df$ratio_num, "%"), font = 2, cex = 0.9)
-legend("topright", legend = c(paste("Seuil Co-inf (", cutoff, "%)", sep="")), lty = 2, col = "red", lwd = 2, bty = "n")
-
+# Génération du PDF
+pdf(pdf_out, width = 9, height = 9)
+grid.arrange(p1, p2, nrow = 2)
 dev.off()
+
+cat(paste0("   📊 Rapport PDF généré avec succès : ", basename(pdf_out), "\n"))

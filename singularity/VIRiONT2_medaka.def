@@ -4,9 +4,18 @@ Stage: condabuild
 
 %files
 VIRiONT2_medaka.yml /VIRiONT2_medaka.yml
+# Copie du modèle Clair3 v500 compatible (sans move-table)
+models/r1041_e82_400bps_sup_v500 /opt/models/r1041_e82_400bps_sup_v500
 
 %post
+# Installation des outils
+apt-get update && apt-get install -y gcc g++ build-essential
+
+# Création de l'environnement Conda
 /opt/conda/bin/conda env create -f /VIRiONT2_medaka.yml
+/opt/conda/bin/conda clean -a -y
+
+# ---------------------------------------------------------------------
 
 Bootstrap: docker
 From: rockylinux:8
@@ -14,6 +23,7 @@ Stage: V1
 
 %files from condabuild
 /opt/conda/envs/VIRiONT2_medaka /opt/conda/envs/VIRiONT2_medaka
+/opt/models /opt/models
 
 %environment
 export PATH=/opt/conda/envs/VIRiONT2_medaka/bin:$PATH
@@ -25,19 +35,7 @@ export LANG=C.UTF-8
 dnf update -y
 dnf install -y epel-release
 dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
-
 dnf groupinstall -y "Development Tools"
 dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
 
-# Dossiers sécurisés essentiels requis pour Nextflow
 mkdir -p /media /mnt /srv /data /scratch
-
-%help
-    SUMMARY
-    Conteneur de production optimisé pour le Polishing et les Variants (VIRiONT2 - Image 2).
-    Contient : Medaka v2.2.2 et FreeBayes v1.3.10.
-
-%labels
-    Version 2.0.0
-    Author SoufianeAlami
-    Date 2026-07-20

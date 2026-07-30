@@ -49,8 +49,14 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
     component=$(echo "$component" | tr -d '\r\n ')
 
     num_barcode=$(echo "$component" | sed 's/[^0-9]//g')
+    
+    # ---------------------------------------------------------------------
+    # NOMENCLATURE : barcode_<NUMERO_BARCODE_2DIGITS>_<NUMERO_GLIMS>
+    # Exemple : barcode_01_26104456601
+    # ---------------------------------------------------------------------
+    formatted_barcode=$(printf "%02d" "$num_barcode")
     folder_name="barcode${num_barcode}"
-    sample_id="barcode_${sample}-${num_barcode}"
+    sample_id="barcode_${formatted_barcode}_${sample}"
 
     if [ ! -d "$DATA_DIR/$folder_name" ]; then
         echo "⚠️ Dossier $DATA_DIR/$folder_name introuvable. Sauté."
@@ -62,7 +68,7 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
     echo "--------------------------------------------------"
     
     # --- ÉTAPE 1 : Fusion des FASTQ par Barcode ---
-    merged_output="${MERGED_DIR}/${folder_name}_merged.fastq.gz"
+    merged_output="${MERGED_DIR}/${sample_id}_merged.fastq.gz"
     echo "--> [01_MERGED] Fusion des fichiers FASTQ..."
     zcat "$DATA_DIR/$folder_name"/* | gzip -c > "$merged_output"
 
