@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # =====================================================================
-# CONFIGURATION DES CHEMINS & AUTONOMIE DES DROITS
+# CONFIGURATION DES CHEMINS & AUTONOMIE DES DROITS (VIRiONT V2)
 # =====================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Auto-attribution des droits d'exécution sur les scripts bin/
 chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.R 2>/dev/null || true
 
 RESULTS_DIR="results_test"
@@ -20,6 +21,7 @@ FILTERED_CONS_FASTA="${PHYLO_DIR}/filtered_consensus.fasta"
 SELECTED_REFS_FASTA="${PHYLO_DIR}/selected_references.fasta"
 ALL_SEQ_FASTA="${PHYLO_DIR}/all_sequences_for_tree.fasta"
 ALIGNED_FASTA="${PHYLO_DIR}/aligned_sequences.fasta"
+RAW_ALIGNED_FASTA="${PHYLO_DIR}/raw_aligned.fasta"
 TREE_FILE="${PHYLO_DIR}/IQtree_analysis.treefile"
 TREE_PDF="${PHYLO_DIR}/PHYLOGRAM_tree.pdf"
 
@@ -38,23 +40,36 @@ if [ ! -f "$ALL_CONS_FASTA" ]; then
 fi
 
 # =====================================================================
-# 1. FILTRAGE DES CONSENSUS RETENUS (Couverture >= 90%)
+# 1. FILTRAGE ET PARSING ROBUSTE DES CONSENSUS RETENUS (Seuil >= 50%)
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 1. Filtrage des consensus retenus (Exclusion si > 10% de N)..."
+echo "--> 1. Filtrage et nettoyage des consensus retenus..."
 
 awk '
-BEGIN {RS=">"; FS="\n"}
-NR>1 {
-    header=$1;
-    seq="";
-    for(i=2;i<=NF;i++) seq=seq $i;
-    gsub(/[ \t\r\n]/, "", seq);
-    len=length(seq);
-    n_count=gsub(/[Nn]/, "", seq);
-    
-    if (len > 0 && ((len - n_count) / len * 100) >= 90) {
-        printf ">%s\n%s\n", header, seq;
+/^>/ {
+    if (NR > 1) {
+        gsub(/[ \t\r\n]/, "", seq);
+        len = length(seq);
+        n_count = gsub(/[Nn]/, "", seq);
+        if (len > 0 && ((len - n_count) / len * 100) >= 50) {
+            print header "\n" seq;
+        }
+    }
+    header = $0;
+    seq = "";
+    next;
+}
+{
+    seq = seq $0;
+}
+END {
+    if (header != "") {
+        gsub(/[ \t\r\n]/, "", seq);
+        len = length(seq);
+        n_count = gsub(/[Nn]/, "", seq);
+        if (len > 0 && ((len - n_count) / len * 100) >= 50) {
+            print header "\n" seq;
+        }
     }
 }' "$ALL_CONS_FASTA" > "$FILTERED_CONS_FASTA"
 
@@ -62,15 +77,15 @@ num_kept=$(grep -c "^>" "$FILTERED_CONS_FASTA" || echo 0)
 echo "   ✅ $num_kept séquences consensus qualifiées conservées."
 
 if [ "$num_kept" -eq 0 ]; then
-    echo "⚠️ Aucun consensus n'a atteint le seuil de 90% de couverture."
+    echo "⚠️ Aucun consensus n'a atteint le seuil de couverture."
     exit 0
 fi
 
 # =====================================================================
-# 2. INGESTION DE TOUTES LES RÉFÉRENCES
+# 2. FUSION SÉCURISÉE AVEC SAUT DE LIGNE GARANTI
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 2. Chargement de l'intégralité du panel de références..."
+echo "--> 2. Chargement du panel de références et fusion..."
 
 > "$SELECTED_REFS_FASTA"
 
@@ -81,19 +96,27 @@ fi
 num_refs=$(grep -c "^>" "$SELECTED_REFS_FASTA" || echo 0)
 echo "   ✅ $num_refs séquences de référence intégrées à l'analyse."
 
-
-cat "$SELECTED_REFS_FASTA" "$FILTERED_CONS_FASTA" | awk '/^>/ {print $0; next} {gsub(/[^ATGCNatgcn-]/, "N"); print $0}' > "$ALL_SEQ_FASTA"
+# Le 'echo ""' empêche la fusion de la dernière ligne de référence avec le premier header consensus
+(cat "$SELECTED_REFS_FASTA"; echo ""; cat "$FILTERED_CONS_FASTA") | \
+awk '/^>/ {print $0; next} {gsub(/[^ATGCNatgcn-]/, "N"); print $0}' | \
+grep -v '^$' > "$ALL_SEQ_FASTA"
 
 # =====================================================================
-# 3. ALIGNEMENT MULTIPLE (MAFFT)
+# 3. ALIGNEMENT MULTIPLE & RÉORIENTATION GLOBALE DE TOUTES LES SÉQUENCES
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 3. Alignement Multiple via MAFFT..."
+echo "--> 3. Réorientation globale et Alignement Multiple via MAFFT..."
 
-mafft --auto "$ALL_SEQ_FASTA" > "$ALIGNED_FASTA" 2>"${PHYLO_DIR}/mafft.log" || true
+# 1. Alignement avec détection et réorientation automatique du sens (+ / -)
+mafft --auto --adjustdirection "$ALL_SEQ_FASTA" > "$RAW_ALIGNED_FASTA" 2>"${PHYLO_DIR}/mafft.log" || true
+
+# 2. Nettoyage strict des headers FASTA (suppression de _R_ sans altérer la séquence inversée)
+awk '/^>/ {gsub(/^>_R_/, ">"); gsub(/^>_R/, ">"); print; next} {print}' "$RAW_ALIGNED_FASTA" > "$ALIGNED_FASTA"
+
+rm -f "$RAW_ALIGNED_FASTA"
 
 if [ -s "$ALIGNED_FASTA" ]; then
-    echo "   ✅ Alignement MAFFT terminé."
+    echo "   ✅ Toutes les séquences ont été réorientées dans le bon sens et alignées."
 else
     echo "❌ Erreur : L'alignement MAFFT est vide."
     cat "${PHYLO_DIR}/mafft.log"
