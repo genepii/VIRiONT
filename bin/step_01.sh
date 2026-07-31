@@ -41,49 +41,68 @@ fi
 # =====================================================================
 # 3. BOUCLE DE TRAITEMENT SUR LES ÉCHANTILLONS (DEHOSTING)
 # =====================================================================
-tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forward reverse flowcell kit_id primers; do
-    
-    [ -z "$sample" ] && continue
+tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forward reverse flowcell kit_id primers || [ -n "$sample" ]; do
 
+    # Nettoyage direct des caractères invisibles (\r, \n) et des espaces
     sample=$(echo "$sample" | tr -d '\r\n ')
     component=$(echo "$component" | tr -d '\r\n ')
 
-    num_barcode=$(echo "$component" | sed 's/[^0-9]//g')
-    
+    # Passer les lignes vides
+    [ -z "$sample" ] && continue
+
+    # Extraction sécurisée du numéro de barcode
+    num_barcode=$(echo "$component" | grep -o '[0-9]\+' || true)
+
+    if [ -z "$num_barcode" ]; then
+        echo "⚠️ Barcode non valide trouvé dans le composant '$component'. Ligne sautée."
+        continue
+    fi
+
     # ---------------------------------------------------------------------
     # NOMENCLATURE : barcode_<NUMERO_BARCODE_2DIGITS>_<NUMERO_GLIMS>
     # Exemple : barcode_01_26104456601
     # ---------------------------------------------------------------------
     formatted_barcode=$(printf "%02d" "$num_barcode")
-    folder_name="barcode${num_barcode}"
+    folder_name="barcode${formatted_barcode}"
     sample_id="barcode_${formatted_barcode}_${sample}"
 
     if [ ! -d "$DATA_DIR/$folder_name" ]; then
-        echo "⚠️ Dossier $DATA_DIR/$folder_name introuvable. Sauté."
-        continue
+        # Essai alternatif si le dossier est nommé sans zéro initial (ex: barcode1 au lieu de barcode01)
+        folder_name="barcode${num_barcode}"
+        if [ ! -d "$DATA_DIR/$folder_name" ]; then
+            echo "⚠️ Dossier $DATA_DIR/$folder_name introuvable. Sauté."
+            continue
+        fi
     fi
 
     echo "--------------------------------------------------"
     echo "Traitement $sample_id ($folder_name)"
     echo "--------------------------------------------------"
-    
+
     # --- ÉTAPE 1 : Fusion des FASTQ par Barcode ---
     merged_output="${MERGED_DIR}/${sample_id}_merged.fastq.gz"
     echo "--> [01_MERGED] Fusion des fichiers FASTQ..."
-    zcat "$DATA_DIR/$folder_name"/* | gzip -c > "$merged_output"
+    
+    # Gestion automatique selon si les fichiers sources sont compressés (.gz) ou non
+    gz_count=$(find "$DATA_DIR/$folder_name" -type f -name "*.gz" | wc -l)
+    if [ "$gz_count" -gt 0 ]; then
+        zcat "$DATA_DIR/$folder_name"/* | gzip -c > "$merged_output"
+    else
+        cat "$DATA_DIR/$folder_name"/* | gzip -c > "$merged_output"
+    fi
 
-    # --- ÉTAPE 2 : Dehosting (Alignement & Extraction Non-Humain) ---
-    HUMAN_BAM="${DEHOST_DIR}/${sample_id}_human.bam"
+    # --- ÉTAPE 2 : Dehosting tolérant (Alignement -ax splice & Filtre MAPQ) ---
     FINAL_OUTPUT="${DEHOST_DIR}/${sample_id}_dehosted.fastq.gz"
 
-    echo "--> [02_DEHOSTING] Alignement GRCh38 (-ax splice)..."
-    minimap2 -t 4 -ax splice "$REF_INDEX" "$merged_output" | samtools view -b > "$HUMAN_BAM"
-
-    echo "--> [02_DEHOSTING] Extraction directe des reads non-humains (-f 4 -> FASTQ.GZ)..."
-    samtools fastq -f 4 "$HUMAN_BAM" | gzip -c > "$FINAL_OUTPUT"
-
-    # Nettoyage du fichier BAM intermédiaire lourd
-    rm -f "$HUMAN_BAM"
+    echo "--> [02_DEHOSTING] Alignement GRCh38 (-ax splice) & extraction tolérante des reads (non-alignés + MAPQ < 10)..."
+    
+    # Explication du pipeline ci-dessous :
+    # 1. minimap2 aligne avec la sensibilité 'splice'
+    # 2. samtools view ne garde QUE les reads totalement non-alignés OR avec un score de qualité d'alignement humain très faible (MAPQ < 10)
+    # 3. samtools fastq exclut les alignements secondaires/supplémentaires (-F 0x900) pour éviter les doublons tout en sauvant le read d'origine
+    minimap2 -t 4 -ax splice "$REF_INDEX" "$merged_output" | \
+    samtools view -e 'flag.unmap || mapq < 10' -u - | \
+    samtools fastq -@ 4 -F 0x900 - | gzip -c > "$FINAL_OUTPUT"
 
     echo "✅ Créé avec succès : $(basename "$FINAL_OUTPUT")"
 

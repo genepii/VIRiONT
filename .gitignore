@@ -1,10 +1,9 @@
 results_test/
-ref_GRCh38/
 fastq_pass/
 .nextflow/
 *.sif
+*.mmi
 *.gz
 *.bam
-*.bai
 *.fasta
 *.fastq.gz

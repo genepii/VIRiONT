@@ -7,6 +7,7 @@ dependencies:
   # --- Dépendances de base du pipeline ---
   - python=3.12
   - git
+  - hostile=2.0.2      # <--- Ajouté ici (version exacte de Bioconda)
   - chopper=0.13.0
   - minimap2=2.31
   - samtools=1.24
