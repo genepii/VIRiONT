@@ -19,9 +19,12 @@ PRECONS_BAM_DIR="${PRECONSENSUS_DIR}/BAM"
 PRECONS_SEQ_DIR="${PRECONSENSUS_DIR}/SEQUENCES"
 PRECONS_VCF_DIR="${PRECONSENSUS_DIR}/VCF"
 
-# Renommé de 09_CONSENSUS -> 07_CONSENSUS pour suivre l'ordre logique
 FINAL_CONSENSUS_DIR="${RESULTS_DIR}/07_CONSENSUS"
 LOCAL_MODELS_DIR="${BASE_DIR}/models"
+
+# --- CONFIGURATION DES RESSOURCES CPU PARALLÈLES ---
+PARALLEL_JOBS=4
+THREADS_PER_JOB=16
 
 # --- CONFIGURATION DES MODÈLES D'IA ---
 MEDAKA_MODEL="r1041_e82_400bps_sup_g615"
@@ -39,7 +42,6 @@ SEARCH_PATHS=(
 CLAIR3_MODEL_PATH=""
 for path in "${SEARCH_PATHS[@]}"; do
     if [ -d "$path" ]; then
-        # Exclut les modèles avec move-table (*_with_mv) incompatibles
         found=$(find "$path" -maxdepth 2 -type d -name "${CLAIR3_MODEL_NAME}*" ! -name "*_with_mv" 2>/dev/null | head -n 1 || true)
         if [ -n "$found" ] && [ -d "$found" ]; then
             CLAIR3_MODEL_PATH="$found"
@@ -52,17 +54,36 @@ done
 mkdir -p "$PRECONS_BAM_DIR" "$PRECONS_SEQ_DIR" "$PRECONS_VCF_DIR" "$FINAL_CONSENSUS_DIR"
 
 echo "====================================================================="
-echo "  ÉTAPE 03 : DUAL-ENGINE (Polissage Medaka & Variant Calling Clair3)"
-echo "  Arborescence pré-consensus : $PRECONSENSUS_DIR"
-echo "  Séquence consensus finale  : $FINAL_CONSENSUS_DIR"
-echo "  Modèle Medaka utilisé      : $MEDAKA_MODEL"
-echo "  Dossier modèle Clair3      : ${CLAIR3_MODEL_PATH:-"NON DISPONIBLE (Repli FreeBayes)"}"
+echo "   ÉTAPE 03 : DUAL-ENGINE (PARALLÉLISÉ AVEC XARGS : $PARALLEL_JOBS ÉCHANTILLONS EN SIMULTANÉ)"
+echo "   Arborescence pré-consensus : $PRECONSENSUS_DIR"
+echo "   Séquence consensus finale  : $FINAL_CONSENSUS_DIR"
+echo "   Modèle Medaka utilisé      : $MEDAKA_MODEL"
+echo "   Dossier modèle Clair3      : ${CLAIR3_MODEL_PATH:-"NON DISPONIBLE (Repli FreeBayes)"}"
+echo "   Threads / Job              : $THREADS_PER_JOB"
 echo "====================================================================="
 
-# Boucle de traitement récursive sur les sous-dossiers de 05_GENOTYPING
-find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_file; do
+# =====================================================================
+# FONCTION UNIFIÉE DE TRAITEMENT EXPORTÉE POUR XARGS
+# =====================================================================
+process_single_tsv() {
+    local tsv_file="$1"
+    local TRIMMED_DIR="$2"
+    local AMPLICON_DIR="$3"
+    local PRECONS_SEQ_DIR="$4"
+    local PRECONS_BAM_DIR="$5"
+    local PRECONS_VCF_DIR="$6"
+    local FINAL_CONSENSUS_DIR="$7"
+    local MEDAKA_MODEL="$8"
+    local CLAIR3_MODEL_PATH="$9"
+    local THREADS_PER_JOB="${10}"
+
+    [ ! -f "$tsv_file" ] && return 0
 
     grep -w "VALIDATED" "$tsv_file" | while IFS=$'\t' read -r sample_id geno best_cluster total_reads ratio pident length status; do
+
+        sample_id=$(echo "$sample_id" | tr -d '\r\n ')
+        geno=$(echo "$geno" | tr -d '\r\n ')
+        best_cluster=$(echo "$best_cluster" | tr -d '\r\n ')
 
         [ -z "$geno" ] && continue
 
@@ -84,40 +105,54 @@ find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_fil
         TEMP_DIR="${FINAL_CONSENSUS_DIR}/temp_${sample_geno_id}"
 
         echo "---------------------------------------------------------------------"
-        echo "Traitement : $sample_geno_id (Cluster source : $best_cluster)"
+        echo "▶️ [DEBUT] Traitement : $sample_geno_id (Cluster source : $best_cluster)"
         echo "---------------------------------------------------------------------"
 
         if [ ! -f "$TRIMMED_FASTQ" ]; then
-            echo "⚠️ FASTQ filtré introuvable pour $sample_id. Sauté."
+            echo "⚠️ FASTQ filtré introuvable pour $sample_id dans $TRIMMED_DIR. Sauté."
             continue
         fi
 
-        # --- 1. Extraction Séquence Draft ---
-        AMPLICON_FASTA=$(find "${AMPLICON_DIR}/${sample_id}" -name "*consensusfile.fasta" 2>/dev/null | head -n 1 || true)
-
-        if [ -n "$AMPLICON_FASTA" ] && [ -f "$AMPLICON_FASTA" ]; then
-            awk -v target=">$best_cluster" -v new_id=">$sample_geno_id" '
-                $0 ~ target {flag=1; print new_id; next}
-                /^>/ {flag=0}
-                flag {print}
-            ' "$AMPLICON_FASTA" > "$PRECONS_FASTA"
+        # --- 1. EXTRACTION BLINDÉE ET SECOURUE DE LA SÉQUENCE DRAFT ---
+        > "$PRECONS_FASTA"
+        
+        # Secours 1 : Fichier Master FASTA créé par l'Étape 02
+        sample_dir="$(dirname "$tsv_file")"
+        master_fasta="${sample_dir}/${sample_id}_${geno}_master_consensus.fasta"
+        if [ -f "$master_fasta" ] && [ -s "$master_fasta" ]; then
+            awk -v new_id=">$sample_geno_id" '
+                NR==1 {print new_id; next}
+                /^>/ {exit}
+                {print}
+            ' "$master_fasta" > "$PRECONS_FASTA"
         fi
 
-        # Recherche du master consensus dans le sous-dossier dédié de l'échantillon
+        # Secours 2 : Recherche dans le dossier amplicon_sorter par nom de fichier
         if [ ! -s "$PRECONS_FASTA" ]; then
-            sample_dir="$(dirname "$tsv_file")"
-            master_fasta="${sample_dir}/${sample_id}_${geno}_master_consensus.fasta"
-            if [ -f "$master_fasta" ]; then
+            cluster_file=$(find "${AMPLICON_DIR}/${sample_id}" -type f \( -name "*${best_cluster}*.fasta" -o -name "*${best_cluster}*.fa" \) ! -name "*unique*" 2>/dev/null | head -n 1 || true)
+            if [ -n "$cluster_file" ] && [ -s "$cluster_file" ]; then
                 awk -v new_id=">$sample_geno_id" '
                     NR==1 {print new_id; next}
                     /^>/ {exit}
                     {print}
-                ' "$master_fasta" > "$PRECONS_FASTA"
+                ' "$cluster_file" > "$PRECONS_FASTA"
+            fi
+        fi
+
+        # Secours 3 : Prendre n'importe quel fichier FASTA dans le dossier amplicon_sorter
+        if [ ! -s "$PRECONS_FASTA" ]; then
+            any_fasta=$(find "${AMPLICON_DIR}/${sample_id}" -type f \( -name "*.fasta" -o -name "*.fa" \) ! -name "*unique*" 2>/dev/null | head -n 1 || true)
+            if [ -n "$any_fasta" ] && [ -s "$any_fasta" ]; then
+                awk -v new_id=">$sample_geno_id" '
+                    NR==1 {print new_id; next}
+                    /^>/ {exit}
+                    {print}
+                ' "$any_fasta" > "$PRECONS_FASTA"
             fi
         fi
 
         if [ ! -s "$PRECONS_FASTA" ]; then
-            echo "⚠️ Impossible d'extraire la séquence unique pour $best_cluster."
+            echo "❌ Erreur : Impossible de récupérer la séquence draft pour $sample_id ($geno). Sauté."
             continue
         fi
 
@@ -125,12 +160,12 @@ find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_fil
 
         # --- 2. Alignement BAM ---
         echo "--> [06_PRECONSENSUS/BAM/${sample_id}] Alignement Minimap2 et indexation BAM..."
-        minimap2 -ax map-ont --secondary=no -L -t 4 "$PRECONS_FASTA" "$TRIMMED_FASTQ" 2>/dev/null | \
-        samtools sort -o "$OUT_BAM"
+        minimap2 -ax map-ont --secondary=no -L -t "$THREADS_PER_JOB" "$PRECONS_FASTA" "$TRIMMED_FASTQ" 2>/dev/null | \
+        samtools sort -@ "$THREADS_PER_JOB" -o "$OUT_BAM"
         samtools index "$OUT_BAM"
 
         # --- 3. Polissage Medaka ---
-        echo "--> [MEDAKA] Polissage de la séquence FASTA..."
+        echo "--> [MEDAKA] Polissage de la séquence FASTA pour $sample_geno_id..."
         rm -rf "${TEMP_DIR}_medaka"
 
         medaka_consensus \
@@ -138,7 +173,7 @@ find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_fil
             -d "$PRECONS_FASTA" \
             -o "${TEMP_DIR}_medaka" \
             -m "$MEDAKA_MODEL" \
-            -t 4 > /dev/null 2>&1 || true
+            -t "$THREADS_PER_JOB" > /dev/null 2>&1 || true
 
         if [ -f "${TEMP_DIR}_medaka/consensus.fasta" ] && [ -s "${TEMP_DIR}_medaka/consensus.fasta" ]; then
             cp "${TEMP_DIR}_medaka/consensus.fasta" "$FINAL_FASTA"
@@ -150,14 +185,14 @@ find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_fil
         fi
 
         # --- 4. Variant Calling Clair3 ---
-        echo "--> [CLAIR3] Génération du VCF des variants..."
+        echo "--> [CLAIR3] Génération du VCF des variants pour $sample_geno_id..."
         rm -rf "${TEMP_DIR}_clair3"
 
         if [ -n "$CLAIR3_MODEL_PATH" ] && [ -d "$CLAIR3_MODEL_PATH" ]; then
             run_clair3.sh \
                 --bam_fn="$OUT_BAM" \
                 --ref_fn="$PRECONS_FASTA" \
-                --threads=4 \
+                --threads="$THREADS_PER_JOB" \
                 --platform="ont" \
                 --model_path="$CLAIR3_MODEL_PATH" \
                 --output="${TEMP_DIR}_clair3" \
@@ -179,16 +214,33 @@ find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r tsv_fil
             echo -e "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" > "$OUT_VCF"
         fi
 
-        echo "   ✅ SEQUENCES : ${sample_id}/$(basename "$PRECONS_FASTA")"
-        echo "   ✅ BAM       : ${sample_id}/$(basename "$OUT_BAM")"
-        echo "   ✅ VCF       : ${sample_id}/$(basename "$OUT_VCF")"
-        echo "   ✅ CONSENSUS : $(basename "$FINAL_FASTA")"
+        echo "✅ [FIN] Traitement terminé pour $sample_geno_id"
 
     done
-done
+}
+
+export -f process_single_tsv
 
 # =====================================================================
-# 5. CONCATÉNATION GLOBALE DE TOUS LES CONSENSUS DANS 07_CONSENSUS
+# LISTAGE DES FICHIERS TSV ET PARALLÉLISATEUR XARGS
+# =====================================================================
+TSV_LIST=$(mktemp)
+
+find "$GENOTYPING_DIR" -maxdepth 2 -name "*_validated_genotypes.tsv" > "$TSV_LIST"
+
+if [ ! -s "$TSV_LIST" ]; then
+    echo "⚠️ Aucun fichier de génotypage n'a été trouvé dans $GENOTYPING_DIR."
+    rm -f "$TSV_LIST"
+    exit 0
+fi
+
+# Lancement parallèle sur les fichiers TSV
+cat "$TSV_LIST" | xargs -I {} -P "$PARALLEL_JOBS" bash -c 'process_single_tsv "$@"' _ {} "$TRIMMED_DIR" "$AMPLICON_DIR" "$PRECONS_SEQ_DIR" "$PRECONS_BAM_DIR" "$PRECONS_VCF_DIR" "$FINAL_CONSENSUS_DIR" "$MEDAKA_MODEL" "$CLAIR3_MODEL_PATH" "$THREADS_PER_JOB"
+
+rm -f "$TSV_LIST"
+
+# =====================================================================
+# CONCATÉNATION GLOBALE DE TOUS LES CONSENSUS DANS 07_CONSENSUS
 # =====================================================================
 ALL_CONSENSUS_FILE="${FINAL_CONSENSUS_DIR}/all_samples_consensus.fasta"
 
@@ -203,5 +255,5 @@ if [ -s "$ALL_CONSENSUS_FILE" ]; then
 fi
 
 echo "====================================================================="
-echo " 🎉 Étape 03 terminée avec succès !"
+echo " 🎉 Étape 03 terminée avec succès en mode parallèle !"
 echo "====================================================================="

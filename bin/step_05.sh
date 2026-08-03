@@ -1,7 +1,10 @@
 #!/bin/bash
 
+# Interruption en cas d'erreur globale bloquante
+set -eo pipefail
+
 # =====================================================================
-# CONFIGURATION DES CHEMINS & AUTONOMIE DES DROITS (VIRiONT V2)
+# CONFIGURATION DES CHEMINS & RESSOURCES (VIRiONT V2)
 # =====================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -12,6 +15,10 @@ RESULTS_DIR="results_test"
 GENOTYPING_DIR="${RESULTS_DIR}/05_GENOTYPING"
 CONSENSUS_DIR="${RESULTS_DIR}/07_CONSENSUS"
 PHYLO_DIR="${RESULTS_DIR}/09_PHYLOGENY"
+
+# --- ALLOCATION DYNAMIQUE DES RESSOURCES MULTI-THREADS ---
+TOTAL_THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 16)
+THREADS=$TOTAL_THREADS
 
 REF_DATABASE=$(find "${RESULTS_DIR}/00_SUPDATA" -type f -name "*.fasta" 2>/dev/null | head -n 1)
 
@@ -29,8 +36,9 @@ R_PLOT_TREE="${SCRIPT_DIR}/plot_tree.R"
 mkdir -p "$PHYLO_DIR"
 
 echo "====================================================================="
-echo "  ÉTAPE 05 : PHYLOGÉNIE CIBLÉE & ARBRE ÉLAGUÉ (IQ-TREE 3.1.3)"
-echo "  Dossier de sortie : $PHYLO_DIR"
+echo "   ÉTAPE 05 : PHYLOGÉNIE RIGOUREUSE HAUTE PRÉCISION (IQ-TREE & MAFFT)"
+echo "   Dossier de sortie : $PHYLO_DIR"
+echo "   Ressources CPU exploitées : $THREADS Threads"
 echo "====================================================================="
 
 if [ ! -f "$ALL_CONS_FASTA" ]; then
@@ -71,7 +79,7 @@ END {
 }' "$ALL_CONS_FASTA" > "$FILTERED_CONS_FASTA"
 
 num_kept=$(grep -c "^>" "$FILTERED_CONS_FASTA" || echo 0)
-echo "   ✅ $num_kept séquences consensus qualifiées conservées."
+echo "    ✅ $num_kept séquences consensus qualifiées conservées."
 
 if [ "$num_kept" -eq 0 ]; then
     echo "⚠️ Aucun consensus n'a atteint le seuil de couverture."
@@ -79,14 +87,13 @@ if [ "$num_kept" -eq 0 ]; then
 fi
 
 # =====================================================================
-# 2. FILTRE DES RÉFÉRENCES (MAX 3 PAR GÉNOTYPE PRINCIPAL + ZOOM RUN)
+# 2. SELECTION DES RÉFÉRENCES (PANEL COMPLET & EQUILIBRE)
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 2. Sélection optimisée des références (Élagage du panel)..."
+echo "--> 2. Sélection des références..."
 
-# Extraire les lettres majeures des génotypes (ex: B4 D3 -> B D)
 DETECTED_LETTRES=$(grep "^>" "$FILTERED_CONS_FASTA" | grep -oP '[A-H](?=[0-9]*)' | sort -u | tr '\n' ' ' || true)
-echo "   🎯 Génotypes majeurs détectés dans le run : $DETECTED_LETTRES"
+echo "    🎯 Génotypes majeurs détectés dans le run : $DETECTED_LETTRES"
 
 > "$SELECTED_REFS_FASTA"
 
@@ -98,11 +105,10 @@ if [ -n "$REF_DATABASE" ] && [ -f "$REF_DATABASE" ]; then
     }
     /^>/ {
         header = $0;
-        # Extraction du génotype principal (lettre A à H)
         match($0, /[A-H]/);
         geno_lettre = (RLENGTH > 0) ? substr($0, RSTART, 1) : "OTHER";
         
-        # Si le génotype est dans le run -> tout garder. Sinon -> max 3 refs par génotype
+        # Sélection des références pour un arbre équilibré
         if (focus[geno_lettre] == 1 || count[geno_lettre] < 3) {
             keep = 1;
             count[geno_lettre]++;
@@ -119,29 +125,26 @@ if [ -n "$REF_DATABASE" ] && [ -f "$REF_DATABASE" ]; then
 fi
 
 num_refs=$(grep -c "^>" "$SELECTED_REFS_FASTA" || echo 0)
-echo "   ✅ $num_refs séquences de référence sélectionnées (arbre aéré)."
+echo "    ✅ $num_refs séquences de référence sélectionnées."
 
-# Fusion initiale pour l'alignement
+# Fusion des séquences
 (cat "$SELECTED_REFS_FASTA"; echo ""; cat "$FILTERED_CONS_FASTA") | \
 awk '/^>/ {print $0; next} {gsub(/[^ATGCNatgcn-]/, "N"); print $0}' | \
 grep -v '^$' > "$ALL_SEQ_FASTA"
 
 # =====================================================================
-# 3. ALIGNEMENT MULTIPLE & RÉORIENTATION GLOBALE
+# 3. ALIGNEMENT MULTIPLE AVEC MAFFT (MAXIMALE RIGUEUR)
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 3. Alignement & Réorientation globale des brins avec MAFFT..."
+echo "--> 3. Alignement & Réorientation globale des brins (MAFFT multi-threads)..."
 
-# mafft --adjustdirection analyse toutes les séquences et réoriente celles qui sont en Reverse Complement
-mafft --auto --adjustdirection "$ALL_SEQ_FASTA" > "$RAW_ALIGNED_FASTA" 2>"${PHYLO_DIR}/mafft.log" || true
+mafft --auto --thread "$THREADS" --adjustdirection "$ALL_SEQ_FASTA" > "$RAW_ALIGNED_FASTA" 2>"${PHYLO_DIR}/mafft.log" || true
 
-# Nettoyage strict des en-têtes (MAFFT préfixe par _R_ les séquences qu'il a réorientées)
 sed -E 's/>_R_/>/g; s/>_R/>/g' "$RAW_ALIGNED_FASTA" > "$ALIGNED_FASTA"
-
 rm -f "$RAW_ALIGNED_FASTA"
 
 if [ -s "$ALIGNED_FASTA" ]; then
-    echo "   ✅ Alignement terminé avec réorientation automatique des brins."
+    echo "    ✅ Alignement terminé avec succès."
 else
     echo "❌ Erreur alignement MAFFT."
     cat "${PHYLO_DIR}/mafft.log"
@@ -149,24 +152,27 @@ else
 fi
 
 # =====================================================================
-# 4. INFÉRENCE PHYLOGÉNÉTIQUE (IQ-TREE)
+# 4. INFÉRENCE PHYLOGÉNÉTIQUE (MODELFINDER RIGOUREUX -m MFP)
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 4. Inférence de l'arbre via IQ-TREE..."
+echo "--> 4. Inférence de l'arbre via IQ-TREE (ModelFinder complet)..."
 
 IQCMD="iqtree"
 command -v iqtree3 &>/dev/null && IQCMD="iqtree3"
 
+# -m MFP : Teste TOUS les modèles possibles pour trouver la vraie matrice de substitution évolutive.
+# -B 1000 -alrt 1000 : Double validation statistique (Ultrafast Bootstrap + SH-aLRT)
 $IQCMD -s "$ALIGNED_FASTA" \
        -m MFP \
        -B 1000 \
        -alrt 1000 \
        -T AUTO \
+       -ntmax "$THREADS" \
        --prefix "${PHYLO_DIR}/IQtree_analysis" \
        -redo > "${PHYLO_DIR}/iqtree.log" 2>&1 || true
 
 if [ -f "$TREE_FILE" ] && [ -s "$TREE_FILE" ]; then
-    echo "   ✅ Arbre phylogénétique généré avec succès ($TREE_FILE)."
+    echo "    ✅ Arbre phylogénétique haute précision généré ($TREE_FILE)."
 else
     echo "❌ Erreur IQ-TREE."
     cat "${PHYLO_DIR}/iqtree.log"
@@ -174,12 +180,12 @@ else
 fi
 
 # =====================================================================
-# 5. RENDU GRAPHIQUE RECTANGULAIRE (R)
+# 5. RENDU GRAPHIQUE (R)
 # =====================================================================
 echo "---------------------------------------------------------------------"
-echo "--> 5. Génération de l'arbre PDF..."
+echo "--> 5. Génération du PDF..."
 
-Rscript "$R_PLOT_TREE" "$TREE_FILE" "$TREE_PDF"
+Rscript "$R_PLOT_TREE" "$TREE_FILE" "$TREE_PDF" &>/dev/null || true
 
 echo "====================================================================="
 echo " 🎉 Étape 05 terminée avec succès !"

@@ -1,6 +1,5 @@
 #!/usr/bin/env Rscript
 
-# Options pour forcer le point comme séparateur décimal
 options(OutDec = ".")
 
 argv <- commandArgs(TRUE)
@@ -20,23 +19,41 @@ ALLDATA <- rbind(raw_count, dehost_count, trimm_count, geno_count)
 
 colnames(ALLDATA) <- c("readlength", "sample", "step", "assignedref", "pident", "depth", "variants", "assigned_reads")
 
+# =====================================================================
+# 🧹 NETTOYAGE STRICT DES LIGNES PARASITES ET VIDES
+# =====================================================================
+# On ne garde QUE les lignes ayant un vrai nom d'échantillon (qui commence par "barcode_")
+ALLDATA <- ALLDATA[!is.na(ALLDATA$sample) & trimws(ALLDATA$sample) != "" & grepl("^barcode_", ALLDATA$sample), ]
+
 ALLDATA$count <- 1
 ALLDATA$readlength <- as.numeric(ALLDATA$readlength)
 
-# Agrégation des métriques
+# --- Agrégation des métriques ---
 countread_data <- aggregate(ALLDATA$count, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), sum)
 colnames(countread_data) <- c("sample", "step", "assignedref", "read_count")
 
-minlengthread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), min, na.rm = TRUE)
+minlengthread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(0) else return(min(x))
+})
 colnames(minlengthread_data) <- c("sample", "step", "assignedref", "minlengthread")
 
-maxlengthread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), max, na.rm = TRUE)
+maxlengthread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(0) else return(max(x))
+})
 colnames(maxlengthread_data) <- c("sample", "step", "assignedref", "maxlengthread")
 
-meanread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), mean, na.rm = TRUE)
+meanread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(0.0) else return(mean(x))
+})
 colnames(meanread_data) <- c("sample", "step", "assignedref", "meanread_length")
 
-medianread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), median, na.rm = TRUE)
+medianread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(0.0) else return(median(x))
+})
 colnames(medianread_data) <- c("sample", "step", "assignedref", "medianread_length")
 
 pident_data <- aggregate(ALLDATA$pident, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
@@ -51,7 +68,7 @@ colnames(variants_data) <- c("sample", "step", "assignedref", "clair3_variants")
 assigned_data <- aggregate(ALLDATA$assigned_reads, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
 colnames(assigned_data) <- c("sample", "step", "assignedref", "assigned_reads")
 
-# Fusion propre des données
+# --- Fusion propre ---
 METRIC_data <- merge(countread_data, minlengthread_data, by = c("sample", "step", "assignedref"))
 METRIC_data <- merge(METRIC_data, maxlengthread_data, by = c("sample", "step", "assignedref"))
 METRIC_data <- merge(METRIC_data, meanread_data, by = c("sample", "step", "assignedref"))
@@ -61,12 +78,18 @@ METRIC_data <- merge(METRIC_data, depth_data, by = c("sample", "step", "assigned
 METRIC_data <- merge(METRIC_data, variants_data, by = c("sample", "step", "assignedref"))
 METRIC_data <- merge(METRIC_data, assigned_data, by = c("sample", "step", "assignedref"))
 
-# Formatage explicite du nombre flottant
-METRIC_data$meanread_length <- sprintf("%.1f", METRIC_data$meanread_length)
+# Formatage explicite de la moyenne
+METRIC_data$meanread_length <- sprintf("%.1f", as.numeric(METRIC_data$meanread_length))
 
-# Tri par échantillon et par étape
+# Tri
 METRIC_data <- METRIC_data[order(METRIC_data$sample, METRIC_data$step), ]
 
-# Écriture propre avec séparateur de colonnes ';' et point décimal
+# Réordonnancement final des colonnes
+METRIC_data <- METRIC_data[, c(
+  "sample", "step", "assignedref", "read_count", 
+  "minlengthread", "maxlengthread", "meanread_length", "medianread_length", 
+  "pident_blast", "mean_depth_coverage", "clair3_variants", "assigned_reads"
+)]
+
 write.table(METRIC_data, outputtablepath, sep = ";", row.names = FALSE, quote = FALSE)
 cat("✅ Tableau métrique réaligné avec succès :", outputtablepath, "\n")

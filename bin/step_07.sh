@@ -1,14 +1,17 @@
 #!/bin/bash
 
+# Interruption en cas d'erreur globale bloquante
+set -eo pipefail
+
 # =====================================================================
 # CONFIGURATION DES CHEMINS ET DOSSIERS VIRiONT V2
 # =====================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DATA_DIR="fastq_pass"
 
 chmod +x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.R 2>/dev/null || true
 
-CSV_FILE="fastq_pass/260630_VHB_WG_ABS.csv"
 RESULTS_DIR="results_test"
 PRECONS_VCF_DIR="${RESULTS_DIR}/06_PRECONSENSUS/VCF"
 MUTATION_DIR="${RESULTS_DIR}/11_MUTATION_SCREENING"
@@ -18,22 +21,27 @@ R_SEARCH_MUT="${SCRIPT_DIR}/search_mutation.R"
 
 FREQ_MIN=5          # Seuil minimal de fréquence (%)
 WINDOW_POS=0
+PARALLEL_JOBS=4     # Traitement parallèle (4 VCFs en simultané)
 
 # -----------------------------------------------------------------
-# 1. DÉTECTION DU VIRUS
+# 1. DÉTECTION DU VIRUS VIA SAMPLE SHEET
 # -----------------------------------------------------------------
+CSV_FILE=$(find "$DATA_DIR" -maxdepth 1 \( -name "*.csv" -o -name "*Sample_Sheet*" -o -name "*VHB*" -o -name "*VHD*" \) -type f | head -n 1 || true)
+
 virus_name="VHB"
-if [ -f "$CSV_FILE" ]; then
+if [ -n "$CSV_FILE" ] && [ -f "$CSV_FILE" ]; then
     csv_upper=$(echo "$CSV_FILE" | tr '[:lower:]' '[:upper:]')
     if [[ "$csv_upper" == *"VHD"* ]]; then virus_name="VHD"; fi
 fi
 
 echo "====================================================================="
-echo "  ÉTAPES 11_MUTATION_SCREENING : RECHERCHE DES MUTATIONS CLINIQUES VHB"
-echo "  Virus détecté      : $virus_name"
-echo "  Dossier VCF source : $PRECONS_VCF_DIR"
-echo "  Dossier des tables : $MUTATION_TABLES_DIR"
-echo "  Dossier de sortie  : $MUTATION_DIR"
+echo "   ÉTAPE 11_MUTATION_SCREENING : RECHERCHE DES MUTATIONS CLINIQUES VHB"
+echo "   Virus détecté      : $virus_name"
+echo "   Sample Sheet       : ${CSV_FILE:-"Non trouvé (Défaut VHB)"}"
+echo "   Dossier VCF source : $PRECONS_VCF_DIR"
+echo "   Dossier des tables : $MUTATION_TABLES_DIR"
+echo "   Dossier de sortie  : $MUTATION_DIR"
+echo "   Jobs en parallèle  : $PARALLEL_JOBS"
 echo "====================================================================="
 
 if [ "$virus_name" == "VHD" ]; then
@@ -55,83 +63,95 @@ fi
 mkdir -p "$MUTATION_DIR"
 
 # =====================================================================
-# 2. PARCOURS SYSTEMATIQUE DE TOUS LES BARCODES DE 06_PRECONSENSUS/VCF
+# FONCTION UNIFIÉE DE SCREENING R (EXPORTÉE POUR XARGS)
 # =====================================================================
-total_vcfs=0
-total_barcodes=0
+process_single_vcf() {
+    local vcf_path="$1"
+    local MUTATION_DIR="$2"
+    local MUTATION_TABLES_DIR="$3"
+    local R_SEARCH_MUT="$4"
+    local FREQ_MIN="$5"
+    local WINDOW_POS="$6"
 
-for sample_dir in "$PRECONS_VCF_DIR"/*; do
-    
-    [ ! -d "$sample_dir" ] && continue
-    
-    sample_id=$(basename "$sample_dir")
-    ((total_barcodes++))
+    [ ! -f "$vcf_path" ] && return 0
+
+    local sample_dir="$(basename "$(dirname "$vcf_path")")"
+    local filename="$(basename "$vcf_path")"
+    local ref_name="${filename%.vcf}"
 
     echo "---------------------------------------------------------------------"
-    echo "📂 [$total_barcodes] Screening des mutations pour : $sample_id"
+    echo "▶️ [MUTATION SCREENING] $sample_dir --> $filename"
     echo "---------------------------------------------------------------------"
 
-    vcf_files=$(find "$sample_dir" -maxdepth 1 -name "*.vcf" ! -name "*.idx" 2>/dev/null || true)
+    local sample_mut_dir="${MUTATION_DIR}/${sample_dir}"
+    local all_res_dir="${sample_mut_dir}/all_results"
+    local filt_res_dir="${sample_mut_dir}/filtered"
 
-    if [ -z "$vcf_files" ]; then
-        echo "   ⚠️ Aucun fichier .vcf dans $sample_id. Sauté."
-        continue
-    fi
+    mkdir -p "$all_res_dir" "$filt_res_dir"
 
-    for vcf in $vcf_files; do
-        filename=$(basename "$vcf")
-        ref_name="${filename%.vcf}"
+    local vcf_copy="${sample_mut_dir}/${filename}"
+    cp "$vcf_path" "$vcf_copy"
 
-        echo "   --> 🧬 Analyse du VCF : $filename"
+    # GARANTIE DU SAUT DE LIGNE FINAL (Supprime le warning R readLines)
+    [ -s "$vcf_copy" ] && sed -i -e '$a\' "$vcf_copy" 2>/dev/null || true
 
-        sample_mut_dir="${MUTATION_DIR}/${sample_id}"
-        all_res_dir="${sample_mut_dir}/all_results"
-        filt_res_dir="${sample_mut_dir}/filtered"
+    # Chemins des fichiers de sortie
+    local f_VARIANTS="${sample_mut_dir}/${ref_name}_vcf_variants.csv"
 
-        mkdir -p "$all_res_dir" "$filt_res_dir"
+    local f_PC="${all_res_dir}/${ref_name}_PreCore.csv"
+    local f_BCP="${all_res_dir}/${ref_name}_BCP.csv"
+    local f_DS="${all_res_dir}/${ref_name}_DomaineS.csv"
+    local f_RT="${all_res_dir}/${ref_name}_DomaineRT.csv"
+    local f_DPS1="${all_res_dir}/${ref_name}_DomainePreS1.csv"
+    local f_DPS2="${all_res_dir}/${ref_name}_DomainePreS2.csv"
+    local f_DHBx="${all_res_dir}/${ref_name}_DomaineHBx.csv"
+    local f_C="${all_res_dir}/${ref_name}_Core.csv"
 
-        vcf_copy="${sample_mut_dir}/${filename}"
-        cp "$vcf" "$vcf_copy"
+    local f_PC_F="${filt_res_dir}/${ref_name}_PreCore.csv"
+    local f_BCP_F="${filt_res_dir}/${ref_name}_BCP.csv"
+    local f_DS_F="${filt_res_dir}/${ref_name}_DomaineS.csv"
+    local f_RT_F="${filt_res_dir}/${ref_name}_DomaineRT.csv"
+    local f_DPS1_F="${filt_res_dir}/${ref_name}_DomainePreS1.csv"
+    local f_DPS2_F="${filt_res_dir}/${ref_name}_DomainePreS2.csv"
+    local f_DHBx_F="${filt_res_dir}/${ref_name}_DomaineHBx.csv"
+    local f_C_F="${filt_res_dir}/${ref_name}_Core.csv"
 
-        # Fichier d'annotation globale (ex: GTD_vcf_variants) déposé à la racine de l'échantillon
-        f_VARIANTS="${sample_mut_dir}/${ref_name}_vcf_variants.csv"
+    # Appel Rscript strict avec les 21 arguments
+    Rscript "$R_SEARCH_MUT" \
+        "$vcf_copy" \
+        "$MUTATION_TABLES_DIR" \
+        "$FREQ_MIN" \
+        "$WINDOW_POS" \
+        "$f_PC" "$f_BCP" "$f_DS" "$f_RT" "$f_DPS1" "$f_DPS2" "$f_DHBx" "$f_C" \
+        "$f_PC_F" "$f_BCP_F" "$f_DS_F" "$f_RT_F" "$f_DPS1_F" "$f_DPS2_F" "$f_DHBx_F" "$f_C_F" \
+        "$f_VARIANTS" > /dev/null 2>&1 || true
 
-        # Chemins des résultats bruts
-        f_PC="${all_res_dir}/${ref_name}_PreCore.csv"
-        f_BCP="${all_res_dir}/${ref_name}_BCP.csv"
-        f_DS="${all_res_dir}/${ref_name}_DomaineS.csv"
-        f_RT="${all_res_dir}/${ref_name}_DomaineRT.csv"
-        f_DPS1="${all_res_dir}/${ref_name}_DomainePreS1.csv"
-        f_DPS2="${all_res_dir}/${ref_name}_DomainePreS2.csv"
-        f_DHBx="${all_res_dir}/${ref_name}_DomaineHBx.csv"
-        f_C="${all_res_dir}/${ref_name}_Core.csv"
+    echo "✅ [MUTATION SCREENING] Terminé pour $sample_dir ($ref_name)"
+}
 
-        # Chemins des résultats filtrés
-        f_PC_F="${filt_res_dir}/${ref_name}_PreCore.csv"
-        f_BCP_F="${filt_res_dir}/${ref_name}_BCP.csv"
-        f_DS_F="${filt_res_dir}/${ref_name}_DomaineS.csv"
-        f_RT_F="${filt_res_dir}/${ref_name}_DomaineRT.csv"
-        f_DPS1_F="${filt_res_dir}/${ref_name}_DomainePreS1.csv"
-        f_DPS2_F="${filt_res_dir}/${ref_name}_DomainePreS2.csv"
-        f_DHBx_F="${filt_res_dir}/${ref_name}_DomaineHBx.csv"
-        f_C_F="${filt_res_dir}/${ref_name}_Core.csv"
+export -f process_single_vcf
 
-        # Exécution du script R (avec ajout de f_VARIANTS comme 21ème argument)
-        Rscript "$R_SEARCH_MUT" \
-            "$vcf_copy" \
-            "$MUTATION_TABLES_DIR" \
-            "$FREQ_MIN" \
-            "$WINDOW_POS" \
-            "$f_PC" "$f_BCP" "$f_DS" "$f_RT" "$f_DPS1" "$f_DPS2" "$f_DHBx" "$f_C" \
-            "$f_PC_F" "$f_BCP_F" "$f_DS_F" "$f_RT_F" "$f_DPS1_F" "$f_DPS2_F" "$f_DHBx_F" "$f_C_F" \
-            "$f_VARIANTS" || echo "⚠️ Erreur mineure Rscript sur $filename (Poursuite de la boucle)"
+# =====================================================================
+# LISTAGE ET EXÉCUTION PARALLÈLE
+# =====================================================================
+VCF_LIST=$(mktemp)
 
-        ((total_vcfs++))
-    done
+find "$PRECONS_VCF_DIR" -type f -name "*.vcf" ! -name "*.idx" > "$VCF_LIST"
 
-done
+total_vcfs=$(wc -l < "$VCF_LIST" || echo 0)
+
+if [ "$total_vcfs" -eq 0 ]; then
+    echo "⚠️ Aucun fichier .vcf n'a été trouvé dans $PRECONS_VCF_DIR."
+    rm -f "$VCF_LIST"
+    exit 0
+fi
+
+# Traitement parallèle xargs
+cat "$VCF_LIST" | xargs -I {} -P "$PARALLEL_JOBS" bash -c 'process_single_vcf "$@"' _ {} "$MUTATION_DIR" "$MUTATION_TABLES_DIR" "$R_SEARCH_MUT" "$FREQ_MIN" "$WINDOW_POS"
+
+rm -f "$VCF_LIST"
 
 echo "====================================================================="
 echo " 🎉 Étape 11_MUTATION_SCREENING terminée avec succès !"
-echo " 📊 Total : $total_barcodes barcode(s) et $total_vcfs fichier(s) VCF analysé(s) sous $MUTATION_DIR"
+echo " 📊 Total : $total_vcfs fichier(s) VCF analysé(s) sous $MUTATION_DIR"
 echo "====================================================================="

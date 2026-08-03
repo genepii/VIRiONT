@@ -7,7 +7,7 @@ set -eo pipefail
 # CONFIGURATION DES CHEMINS ET DOSSIERS (VIRiONT V2)
 # =====================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CSV_FILE="fastq_pass/260630_VHB_WG_ABS.csv"
+DATA_DIR="fastq_pass"
 REF_SOURCE_DIR="/srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/ref"
 
 RESULTS_DIR="results_test"
@@ -17,6 +17,27 @@ DEHOST_DIR="${RESULTS_DIR}/02_DEHOSTING"
 TRIMMED_DIR="${RESULTS_DIR}/03_FILTERED_TRIMMED"
 AMPLICON_DIR="${RESULTS_DIR}/04_AMPLICON_SORTER"
 GENOTYPING_DIR="${RESULTS_DIR}/05_GENOTYPING"
+
+# --- CONFIGURATION DES RESSOURCES CPU PARALLÈLES ---
+# Ex: 4 échantillons traités en même temps x 16 threads = 64 cœurs occupés
+PARALLEL_JOBS=4
+THREADS_PER_JOB=16
+
+# --- DÉTECTION AUTOMATIQUE DU SAMPLE SHEET DANS FASTQ_PASS ---
+CSV_FILE=$(find "$DATA_DIR" -maxdepth 1 \( -name "*.csv" -o -name "*Sample_Sheet*" -o -name "*VHB*" -o -name "*VHD*" \) -type f | head -n 1 || true)
+
+if [ -z "$CSV_FILE" ] || [ ! -f "$CSV_FILE" ]; then
+    echo "❌ Erreur : Aucun fichier CSV / Sample Sheet trouvé dans $DATA_DIR/."
+    exit 1
+fi
+
+echo "📄 Sample Sheet détecté : $CSV_FILE"
+
+# Détection du séparateur (virgule ou point-virgule)
+SEP=";"
+if head -n 5 "$CSV_FILE" | grep -q ","; then
+    SEP=","
+fi
 
 # --- PARAMÈTRES VIRiONT (SEUILS DE CO-INFECTION) ---
 MI_CUTOFF=30.0      # Seuil de co-infection clinique (30%)
@@ -38,11 +59,6 @@ fi
 
 # Création des dossiers principaux de sortie
 mkdir -p "$SUPDATA_REFSEQ" "$SUPDATA_DB" "$TRIMMED_DIR" "$AMPLICON_DIR" "$GENOTYPING_DIR"
-
-if [ ! -f "$CSV_FILE" ]; then
-    echo "❌ Erreur : Fichier CSV introuvable ($CSV_FILE)."
-    exit 1
-fi
 
 # -----------------------------------------------------------------
 # 1. DÉTECTION GLOBALE DU VIRUS ET DE LA TECHNO DEPUIS LE CSV
@@ -109,7 +125,7 @@ SUMMARY_MULTIINF="${GENOTYPING_DIR}/SUMMARY_Multi_Infection.tsv"
 FASTQ_CONTENT="${RESULTS_DIR}/fastq_content.txt"
 PARAM_FILE="${RESULTS_DIR}/param_file"
 
-# A. Fichier des paramètres du run (param_file à la racine de results_test)
+# Fichier des paramètres du run
 cat << EOF > "$PARAM_FILE"
 ######################
 #### PARAMS USED #####
@@ -125,7 +141,7 @@ multi-infection cutoff: ${MI_CUTOFF}
 min reads threshold: ${MIN_READS}
 EOF
 
-# B. Fichier d'analyse du contenu FASTQ (fastq_content.txt à la racine de results_test)
+# Fichier d'analyse du contenu FASTQ
 cat << EOF > "$FASTQ_CONTENT"
 ##########################
 ##### FASTQ ANALYSIS #####
@@ -133,11 +149,19 @@ cat << EOF > "$FASTQ_CONTENT"
 barcode repository containing fastq/gz files and used for analysis:
 EOF
 
-tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forward reverse flowcell kit_id primers; do
-    [ -z "$sample" ] && continue
-    num_barcode=$(echo "$component" | sed 's/[^0-9]//g')
-    formatted_barcode=$(printf "%02d" "$num_barcode")
-    echo "barcode_${formatted_barcode}_${sample}" >> "$FASTQ_CONTENT"
+tail -n +2 "$CSV_FILE" | while IFS="$SEP" read -r col1 col2 col3 col4 col5 col6 col7 col8 || [ -n "$col1" ]; do
+    [ -z "$col2" ] && continue
+    [[ "$col1" == *"Plate"* ]] && continue
+    
+    component=$(echo "$col3" | tr -d '\r\n ')
+    [ -z "$component" ] && component="$col2"
+    
+    num_barcode=$(echo "$component" | grep -o '[0-9]\+' | head -n 1 || true)
+    if [ -n "$num_barcode" ]; then
+        formatted_barcode=$(printf "%02d" "$num_barcode")
+        sample_name=$(echo "$col2" | tr -d '\r\n ')
+        echo "barcode_${formatted_barcode}_${sample_name}" >> "$FASTQ_CONTENT"
+    fi
 done
 
 cat << EOF >> "$FASTQ_CONTENT"
@@ -149,33 +173,34 @@ list of problematic files:
 empty barcode repositories and ignored for analysis:
 EOF
 
-# C. Réinitialisation du résumé des multi-infections dans 05_GENOTYPING
+# Réinitialisation du résumé global
 > "$SUMMARY_MULTIINF"
 
 echo "====================================================================="
-echo "   EXECUTION ÉTAPE 02 (Chopper -> Amplicon_sorter -> Multi-Genotyping)"
+echo "   EXECUTION ÉTAPE 02 (PARALLÉLISÉ AVEC XARGS : $PARALLEL_JOBS ÉCHANTILLONS EN SIMULTANÉ)"
 echo "   Fichier CSV    : $(basename "$CSV_FILE")"
 echo "   Virus / Tech   : $virus_name | $tech_name"
 echo "   Base Génotypes : $ref_filename"
-echo "   Filtre Taille   : Min = $min_length pb | Max = $max_length pb"
-echo "   Filtre Co-Inf   : Seuil = ${MI_CUTOFF}% | Min Reads = ${MIN_READS}"
+echo "   Filtre Taille  : Min = $min_length pb | Max = $max_length pb"
+echo "   Threads / Job  : $THREADS_PER_JOB"
 echo "====================================================================="
 
 # =====================================================================
-# 4. BOUCLE DE TRAITEMENT SUR LES ÉCHANTILLONS
+# 4. FONCTION UNIFIÉE DE TRAITEMENT EXPORTÉE POUR XARGS
 # =====================================================================
-tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forward reverse flowcell kit_id primers; do
-    
-    [ -z "$sample" ] && continue
-
-    sample=$(echo "$sample" | tr -d '\r\n ')
-    component=$(echo "$component" | tr -d '\r\n ')
-
-    num_barcode=$(echo "$component" | sed 's/[^0-9]//g')
-    
-    # --- NOMENCLATURE UNIFIÉE : barcode_<2_DIGITS>_<GLIMS> ---
-    formatted_barcode=$(printf "%02d" "$num_barcode")
-    sample_id="barcode_${formatted_barcode}_${sample}"
+process_single_sample() {
+    local sample_id="$1"
+    local min_length="$2"
+    local max_length="$3"
+    local DEHOST_DIR="$4"
+    local TRIMMED_DIR="$5"
+    local AMPLICON_DIR="$6"
+    local GENOTYPING_DIR="$7"
+    local DB_PREFIX="$8"
+    local MI_CUTOFF="$9"
+    local MIN_READS="${10}"
+    local R_SCRIPT="${11}"
+    local THREADS_PER_JOB="${12}"
 
     DEHOSTED_FASTQ="${DEHOST_DIR}/${sample_id}_dehosted.fastq.gz"
     if [ ! -f "$DEHOSTED_FASTQ" ]; then
@@ -184,42 +209,34 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
 
     if [ ! -f "$DEHOSTED_FASTQ" ]; then
         echo "⚠️ Output de step_01 introuvable pour $sample_id. Sauté."
-        continue
+        return 0
     fi
 
     TRIMMED_FASTQ="${TRIMMED_DIR}/${sample_id}_trimmed.fastq.gz"
     SAMPLE_AMPLICON_DIR="${AMPLICON_DIR}/${sample_id}"
-    
-    # --- CRÉATION DU DOSSIER PAR ÉCHANTILLON DANS 05_GENOTYPING ---
     SAMPLE_GENO_DIR="${GENOTYPING_DIR}/${sample_id}"
     mkdir -p "$SAMPLE_GENO_DIR"
 
     echo "---------------------------------------------------------------------"
-    echo "Traitement : $sample_id"
+    echo "▶️ [DEBUT] Traitement : $sample_id"
     echo "---------------------------------------------------------------------"
 
-    # --- ÉTAPE 03 : Chopper (Filtrage par longueur) ---
-    if [ -s "$TRIMMED_FASTQ" ]; then
-        echo "--> [03_FILTERED_TRIMMED] Fichier filtré déjà existant : $(basename "$TRIMMED_FASTQ") (Sauté)."
-    else
-        echo "--> [03_FILTERED_TRIMMED] Filtration par taille avec chopper..."
+    # --- ÉTAPE 03 : Chopper ---
+    if [ ! -s "$TRIMMED_FASTQ" ]; then
         gunzip -c "$DEHOSTED_FASTQ" | chopper -l "$min_length" --maxlength "$max_length" | gzip -c > "$TRIMMED_FASTQ"
     fi
 
     if [ ! -s "$TRIMMED_FASTQ" ]; then
         echo "⚠️ Aucun read conservé par chopper pour $sample_id."
         rm -f "$TRIMMED_FASTQ"
-        continue
+        return 0
     fi
 
-    # --- ÉTAPE 04 : Amplicon_sorter (Clustering De Novo WG) ---
+    # --- ÉTAPE 04 : Amplicon_sorter ---
     mkdir -p "$SAMPLE_AMPLICON_DIR"
     CONSENSUS_FILES=$(find "$SAMPLE_AMPLICON_DIR" -maxdepth 2 \( -name "*.fasta" -o -name "*.fa" \) ! -name "*unique*" 2>/dev/null || true)
 
-    if [ -n "$CONSENSUS_FILES" ]; then
-        echo "--> [04_AMPLICON_SORTER] Consensus de novo déjà existants dans $(basename "$SAMPLE_AMPLICON_DIR") (Sauté)."
-    else
-        echo "--> [04_AMPLICON_SORTER] Clustering & Génération des consensus De Novo..."
+    if [ -z "$CONSENSUS_FILES" ]; then
         amplicon_sorter.py \
             -i "$TRIMMED_FASTQ" \
             -o "$SAMPLE_AMPLICON_DIR" \
@@ -230,7 +247,7 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
             -ssg 85 \
             -ss 85 \
             -sc 92 \
-            -np 4 > /dev/null
+            -np "$THREADS_PER_JOB" > /dev/null
 
         CONSENSUS_FILES=$(find "$SAMPLE_AMPLICON_DIR" -maxdepth 2 \( -name "*.fasta" -o -name "*.fa" \) ! -name "*unique*" 2>/dev/null || true)
     fi
@@ -238,24 +255,18 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
     if [ -z "$CONSENSUS_FILES" ]; then
         echo "⚠️ Aucun consensus produit par amplicon_sorter pour $sample_id."
         rm -f "$TRIMMED_FASTQ"
-        continue
+        return 0
     fi
 
-    # --- ÉTAPE 05 : BLASTn & Table de Comptage Brute des Clusters ---
-    echo "--> [05_GENOTYPING] Analyse BLAST & Comptage des Reads..."
-    
+    # --- ÉTAPE 05 : BLASTn ---
     RAW_COUNT_TABLE="${SAMPLE_GENO_DIR}/${sample_id}_raw_cluster_counts.tsv"
     echo -e "sample\tcluster\tread_count\tgenotype\tpident\tlength\tbitscore" > "$RAW_COUNT_TABLE"
 
     for cons_file in $CONSENSUS_FILES; do
         cons_name=$(basename "$cons_file" | sed 's/\.[^.]*$//')
-        
         header=$(head -n 1 "$cons_file")
         read_count=$(echo "$header" | grep -oP '\(\K[0-9]+(?=\))' || true)
-        
-        if [ -z "$read_count" ]; then
-            read_count=$(grep -c "^>" "$cons_file" || echo "1")
-        fi
+        [ -z "$read_count" ] && read_count=$(grep -c "^>" "$cons_file" || echo "1")
 
         blast_line=$(blastn -query "$cons_file" \
                             -db "$DB_PREFIX" \
@@ -274,7 +285,6 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
 
     # --- ÉTAPE 06 : Agrégation & Filtre Co-Infections ---
     VALIDATED_SUMMARY="${SAMPLE_GENO_DIR}/${sample_id}_validated_genotypes.tsv"
-    
     echo -e "sample\tgenotype\tbest_cluster\ttotal_reads\tratio_percent\tpident\tlength\tstatus" > "$VALIDATED_SUMMARY"
 
     awk -F'\t' -v cutoff="$MI_CUTOFF" -v min_r="$MIN_READS" '
@@ -282,9 +292,7 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
             geno = $4
             reads = $3 + 0
             bit = $7 + 0
-            
             sum_reads[geno] += reads
-            
             if (bit > max_bit[geno]) {
                 max_bit[geno] = bit
                 best_cluster[geno] = $2
@@ -295,64 +303,76 @@ tail -n +2 "$CSV_FILE" | while IFS=';' read -r plate_pos sample component forwar
         END {
             max_g_reads = 0
             for (g in sum_reads) {
-                if (sum_reads[g] > max_g_reads) {
-                    max_g_reads = sum_reads[g]
-                }
+                if (sum_reads[g] > max_g_reads) max_g_reads = sum_reads[g]
             }
-            
             for (g in sum_reads) {
                 ratio = (sum_reads[g] / max_g_reads) * 100
-                
                 status = "REJECTED"
-                if (ratio >= cutoff && sum_reads[g] >= min_r) {
-                    status = "VALIDATED"
-                }
-                
+                if (ratio >= cutoff && sum_reads[g] >= min_r) status = "VALIDATED"
                 printf "%s\t%s\t%s\t%d\t%.1f%%\t%s\t%s\t%s\n", 
                        "'"$sample_id"'", g, best_cluster[g], sum_reads[g], ratio, best_pident[g], best_len[g], status
             }
         }
     ' "$RAW_COUNT_TABLE" | sort -k4,4nr >> "$VALIDATED_SUMMARY"
 
-    # --- ÉTAPE 06.B : Alimentation de SUMMARY_Multi_Infection.tsv ---
-    if [ -f "$VALIDATED_SUMMARY" ]; then
-        awk -F'\t' 'NR>1 {
-            ratio = $5; gsub(/%/, "", ratio);
-            print $1"\t"$2"\t"$4"\t"ratio
-        }' "$VALIDATED_SUMMARY" >> "$SUMMARY_MULTIINF"
-    fi
-
-    # --- ÉTAPE 07 : Appel automatique du Script R ---
-    echo "--> [07_REPORT] Génération automatique du rapport PDF..."
+    # --- ÉTAPE 07 : Script R ---
     PDF_REPORT="${SAMPLE_GENO_DIR}/${sample_id}_genotype_report.pdf"
+    Rscript "$R_SCRIPT" "$VALIDATED_SUMMARY" "$MI_CUTOFF" "$PDF_REPORT" &>/dev/null || true
 
-    Rscript "$R_SCRIPT" "$VALIDATED_SUMMARY" "$MI_CUTOFF" "$PDF_REPORT" || echo "⚠️ Attention : Échec lors de la génération du PDF avec R."
-
-    # --- ÉTAPE 08 : Export des Fichiers Maîtres FASTA pour Medaka ---
-    echo "--> [08_EXPORT] Exportation des consensus maîtres..."
-    
+    # --- ÉTAPE 08 : Export FASTA ---
     grep -w "VALIDATED" "$VALIDATED_SUMMARY" | while IFS=$'\t' read -r s_id geno cluster rcount ratio pident length status; do
-        
-        echo "   🎯 Génotype Validé : $geno (Cluster: $cluster | Reads: $rcount | Ratio: $ratio)"
-
         MASTER_FASTA="${SAMPLE_GENO_DIR}/${sample_id}_${geno}_master_consensus.fasta"
-        
-        awk -v target=">$cluster" '
-            $0 ~ target {flag=1; print; next}
-            /^>/ {flag=0}
-            flag {print}
-        ' "$SAMPLE_AMPLICON_DIR"/*consensusfile.fasta > "$MASTER_FASTA" 2>/dev/null || true
-
-        if [ ! -s "$MASTER_FASTA" ]; then
-            cp $(echo "$CONSENSUS_FILES" | head -n 1) "$MASTER_FASTA"
+        target_file=$(find "$SAMPLE_AMPLICON_DIR" -type f \( -name "${cluster}*.fasta" -o -name "${cluster}*.fa" -o -name "*${cluster}*" \) ! -name "*unique*" | head -n 1 || true)
+        if [ -n "$target_file" ] && [ -s "$target_file" ]; then
+            cp "$target_file" "$MASTER_FASTA"
+        else
+            first_cons=$(echo "$CONSENSUS_FILES" | head -n 1)
+            cp "$first_cons" "$MASTER_FASTA"
         fi
-        
-        echo "   ✅ Fichier Maître créé : $(basename "$MASTER_FASTA")"
     done
 
+    echo "✅ [FIN] Traitement terminé pour $sample_id"
+}
+
+export -f process_single_sample
+
+# =====================================================================
+# 5. EXECUTION EN PARALLÈLE AVEC XARGS (-P 4)
+# =====================================================================
+SAMPLE_LIST=$(mktemp)
+
+tail -n +2 "$CSV_FILE" | while IFS="$SEP" read -r plate_pos sample component forward reverse flowcell kit_id primers || [ -n "$sample" ]; do
+    sample=$(echo "$sample" | tr -d '\r\n ')
+    component=$(echo "$component" | tr -d '\r\n ')
+    plate_pos=$(echo "$plate_pos" | tr -d '\r\n ')
+
+    [ -z "$sample" ] && continue
+    [[ "$plate_pos" == *"Plate"* ]] && continue
+    [[ "$sample" == *"Sample"* ]] && continue
+
+    num_barcode=$(echo "$component" | grep -o '[0-9]\+' | head -n 1 || true)
+    [ -z "$num_barcode" ] && continue
+    
+    formatted_barcode=$(printf "%02d" "$num_barcode")
+    echo "barcode_${formatted_barcode}_${sample}" >> "$SAMPLE_LIST"
 done
 
+# Parallélisation native xargs
+cat "$SAMPLE_LIST" | xargs -I {} -P "$PARALLEL_JOBS" bash -c 'process_single_sample "$@"' _ {} "$min_length" "$max_length" "$DEHOST_DIR" "$TRIMMED_DIR" "$AMPLICON_DIR" "$GENOTYPING_DIR" "$DB_PREFIX" "$MI_CUTOFF" "$MIN_READS" "$R_SCRIPT" "$THREADS_PER_JOB"
+
+rm -f "$SAMPLE_LIST"
+
+# =====================================================================
+# 6. CONSOLIDATION DU FICHIER GLOBAL DE MULTI-INFECTION
+# =====================================================================
+echo "--> Aggregation du fichier global SUMMARY_Multi_Infection.tsv..."
+find "$GENOTYPING_DIR" -name "*_validated_genotypes.tsv" | while read -r summary_file; do
+    awk -F'\t' 'NR>1 {
+        ratio = $5; gsub(/%/, "", ratio);
+        print $1"\t"$2"\t"$4"\t"ratio
+    }' "$summary_file" >> "$SUMMARY_MULTIINF"
+done
 
 echo "====================================================================="
-echo " 🎉 Étape 02 terminée avec succès ! Rapports PDF, TSV et FASTAs générés."
+echo " 🎉 Étape 02 terminée avec succès sur l'ensemble du run !"
 echo "====================================================================="
