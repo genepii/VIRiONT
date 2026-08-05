@@ -1,14 +1,14 @@
 #!/usr/bin/env Rscript
 
 # =====================================================================
-# VIRiONT V2 - Annotation & Screening des Mutations VHB (Base-R Native)
+# VIRiONT_NF - Annotation & Screening des Mutations VHB (Base-R Native)
 # Compatible Clair3 VCF v4.2 - Ajout de la colonne GENE/Region_Origin
 # =====================================================================
 
 argv <- commandArgs(TRUE)
 
 if (length(argv) < 20) {
-  stop("Usage: Rscript search_mutation.R <vcf_input> <tablemut_dir> <filter_threshold> <window_pos> <8_raw_outputs> <8_filtered_outputs> [output_variants_global]")
+  stop("Usage: Rscript 16_search_mutation.R <vcf_input> <tablemut_dir> <filter_threshold> <window_pos> <8_raw_outputs> <8_filtered_outputs> [output_variants_global]")
 }
 
 vcf_input        <- argv[1]
@@ -50,9 +50,9 @@ getAA <- function(codon) {
 searchMUT_CODON <- function(vcf, mut_table, mutation) {
   mut_sub <- subset(mut_table, Region == mutation)
   empty_df <- data.frame(REFERENCE=character(), REF_POS=numeric(), REF=character(), total_count=numeric(), 
-                         base_status=character(), base=character(), count=numeric(), NUM_CODON=numeric(), 
-                         POS_TYPE=character(), REF_AA=character(), ALT_AA=character(), Mutation_name=character(), 
-                         freq=numeric(), warning=character(), stringsAsFactors=FALSE)
+                          base_status=character(), base=character(), count=numeric(), NUM_CODON=numeric(), 
+                          POS_TYPE=character(), REF_AA=character(), ALT_AA=character(), Mutation_name=character(), 
+                          freq=numeric(), warning=character(), stringsAsFactors=FALSE)
   
   if (nrow(mut_sub) == 0 || nrow(vcf) == 0) return(empty_df)
   
@@ -114,8 +114,8 @@ searchMUT_CODON <- function(vcf, mut_table, mutation) {
 searchMUT_NT <- function(vcf, mut_table, mutation) {
   mut_sub <- subset(mut_table, Region == mutation)
   empty_df <- data.frame(REFERENCE=character(), REF_POS=numeric(), Position_EcoR1=numeric(), REF=character(), 
-                         total_count=numeric(), base_status=character(), base=character(), count=numeric(), 
-                         Mutation_name=character(), freq=numeric(), stringsAsFactors=FALSE)
+                          total_count=numeric(), base_status=character(), base=character(), count=numeric(), 
+                          Mutation_name=character(), freq=numeric(), stringsAsFactors=FALSE)
   
   if (nrow(mut_sub) == 0 || nrow(vcf) == 0) return(empty_df)
   
@@ -140,24 +140,38 @@ searchMUT_NT <- function(vcf, mut_table, mutation) {
 # ---------------------------------------------------------------------
 # 1. NETTOYAGE VCF & LECTURE CLAIR3
 # ---------------------------------------------------------------------
-vcf_lines <- readLines(vcf_input)
-vcf_clean_lines <- vcf_lines[!startsWith(vcf_lines, "##")]
-
 write_empty <- function(path) {
-  if (path == "") return()
+  if (is.na(path) || path == "") return()
   empty_df <- data.frame(REFERENCE=character(), REF_POS=numeric(), REF=character(), ALT=character(), freq=numeric())
   write.csv2(empty_df, path, row.names=FALSE, quote=FALSE)
 }
+
+if (!file.exists(vcf_input) || file.info(vcf_input)$size == 0) {
+  lapply(c(file_output_PC, file_output_BCP, file_output_DS, file_output_RT, file_output_DPS1, file_output_DPS2, file_output_DHBx, file_output_C,
+           file_output_PC_F, file_output_BCP_F, file_output_DS_F, file_output_RT_F, file_output_DPS1_F, file_output_DPS2_F, file_output_DHBx_F, file_output_C_F,
+           file_output_VARIANTS), write_empty)
+  quit(save = "no", status = 0)
+}
+
+vcf_lines <- readLines(vcf_input)
+vcf_clean_lines <- vcf_lines[!startsWith(vcf_lines, "##")]
 
 if (length(vcf_clean_lines) <= 1) {
   lapply(c(file_output_PC, file_output_BCP, file_output_DS, file_output_RT, file_output_DPS1, file_output_DPS2, file_output_DHBx, file_output_C,
            file_output_PC_F, file_output_BCP_F, file_output_DS_F, file_output_RT_F, file_output_DPS1_F, file_output_DPS2_F, file_output_DHBx_F, file_output_C_F,
            file_output_VARIANTS), write_empty)
-  quit(save = "no")
+  quit(save = "no", status = 0)
 }
 
 raw_vcf <- read.delim(text = vcf_clean_lines, sep = "\t", stringsAsFactors = FALSE)
 colnames(raw_vcf)[1] <- "CHROM"
+
+if (nrow(raw_vcf) == 0) {
+  lapply(c(file_output_PC, file_output_BCP, file_output_DS, file_output_RT, file_output_DPS1, file_output_DPS2, file_output_DHBx, file_output_C,
+           file_output_PC_F, file_output_BCP_F, file_output_DS_F, file_output_RT_F, file_output_DPS1_F, file_output_DPS2_F, file_output_DHBx_F, file_output_C_F,
+           file_output_VARIANTS), write_empty)
+  quit(save = "no", status = 0)
+}
 
 # ---------------------------------------------------------------------
 # 2. PARSING DE LA COLONNE SAMPLE (EXTRACTION DP & AF)
@@ -165,7 +179,8 @@ colnames(raw_vcf)[1] <- "CHROM"
 parsed_records <- list()
 for (i in seq_len(nrow(raw_vcf))) {
   fmt_keys <- unlist(strsplit(raw_vcf$FORMAT[i], ":"))
-  fmt_vals <- unlist(strsplit(raw_vcf$SAMPLE[i], ":"))
+  sample_col <- ifelse("SAMPLE" %in% colnames(raw_vcf), raw_vcf$SAMPLE[i], raw_vcf[[ncol(raw_vcf)]][i])
+  fmt_vals <- unlist(strsplit(sample_col, ":"))
   
   dp_val <- 100; af_val <- 100.0
   if ("DP" %in% fmt_keys) dp_val <- as.numeric(fmt_vals[which(fmt_keys == "DP")])
@@ -209,7 +224,7 @@ if (!file.exists(mut_table_path)) {
   lapply(c(file_output_PC, file_output_BCP, file_output_DS, file_output_RT, file_output_DPS1, file_output_DPS2, file_output_DHBx, file_output_C,
            file_output_PC_F, file_output_BCP_F, file_output_DS_F, file_output_RT_F, file_output_DPS1_F, file_output_DPS2_F, file_output_DHBx_F, file_output_C_F,
            file_output_VARIANTS), write_empty)
-  quit(save = "no")
+  quit(save = "no", status = 0)
 }
 
 table_mut <- read.csv2(mut_table_path, stringsAsFactors = FALSE)
@@ -254,7 +269,6 @@ write.csv2(filter_tbl(table_vcf_C), file_output_C_F, row.names = F, quote = F)
 # ---------------------------------------------------------------------
 if (file_output_VARIANTS != "") {
   
-  # Ajout de la colonne GENE sur chaque DataFrame avant fusion
   add_gene <- function(df, gene_name) {
     if (nrow(df) > 0) {
       df$GENE <- gene_name
@@ -277,7 +291,6 @@ if (file_output_VARIANTS != "") {
   valid_dfs <- Filter(function(x) nrow(x) > 0, all_vars_list)
   
   if (length(valid_dfs) > 0) {
-    # Récupérer l'union de toutes les colonnes existantes avec GENE en 2ème position
     all_cols <- unique(unlist(lapply(valid_dfs, colnames)))
     all_cols <- c("REFERENCE", "GENE", setdiff(all_cols, c("REFERENCE", "GENE")))
     

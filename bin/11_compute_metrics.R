@@ -4,26 +4,68 @@ options(OutDec = ".")
 
 argv <- commandArgs(TRUE)
 
+if (length(argv) < 5) {
+  stop("Usage: Rscript 11_compute_metrics.R <raw_csv> <dehost_csv> <trimm_csv> <geno_csv> <output_csv>")
+}
+
 rawtablepath    <- as.character(argv[1])
 dehosttablepath <- as.character(argv[2])
 trimtablepath   <- as.character(argv[3])
 genotablepath   <- as.character(argv[4])
 outputtablepath <- as.character(argv[5])
 
-raw_count    <- read.csv2(rawtablepath, header = FALSE, stringsAsFactors = FALSE)
-dehost_count <- read.csv2(dehosttablepath, header = FALSE, stringsAsFactors = FALSE)
-trimm_count  <- read.csv2(trimtablepath, header = FALSE, stringsAsFactors = FALSE)
-geno_count   <- read.csv2(genotablepath, header = FALSE, stringsAsFactors = FALSE)
+# Fonction sécurisée pour lire un fichier CSV2 même s'il est vide
+read_safe <- function(filepath) {
+  if (!file.exists(filepath) || file.info(filepath)$size == 0) {
+    return(data.frame())
+  }
+  df <- tryCatch({
+    read.csv2(filepath, header = FALSE, stringsAsFactors = FALSE)
+  }, error = function(e) {
+    return(data.frame())
+  })
+  return(df)
+}
+
+raw_count    <- read_safe(rawtablepath)
+dehost_count <- read_safe(dehosttablepath)
+trimm_count  <- read_safe(trimtablepath)
+geno_count   <- read_safe(genotablepath)
 
 ALLDATA <- rbind(raw_count, dehost_count, trimm_count, geno_count)
+
+if (nrow(ALLDATA) == 0) {
+  cat("⚠️ Aucune donnée métrologique à traiter.\n")
+  empty_df <- data.frame(
+    sample = character(), step = character(), assignedref = character(),
+    read_count = numeric(), minlengthread = numeric(), maxlengthread = numeric(),
+    meanread_length = numeric(), medianread_length = numeric(),
+    pident_blast = character(), mean_depth_coverage = character(),
+    clair3_variants = character(), assigned_reads = character()
+  )
+  write.table(empty_df, outputtablepath, sep = ";", row.names = FALSE, quote = FALSE)
+  quit(save = "no", status = 0)
+}
 
 colnames(ALLDATA) <- c("readlength", "sample", "step", "assignedref", "pident", "depth", "variants", "assigned_reads")
 
 # =====================================================================
 # 🧹 NETTOYAGE STRICT DES LIGNES PARASITES ET VIDES
 # =====================================================================
-# On ne garde QUE les lignes ayant un vrai nom d'échantillon (qui commence par "barcode_")
 ALLDATA <- ALLDATA[!is.na(ALLDATA$sample) & trimws(ALLDATA$sample) != "" & grepl("^barcode_", ALLDATA$sample), ]
+
+if (nrow(ALLDATA) == 0) {
+  cat("⚠️ Aucune ligne échantillon valide trouvée.\n")
+  empty_df <- data.frame(
+    sample = character(), step = character(), assignedref = character(),
+    read_count = numeric(), minlengthread = numeric(), maxlengthread = numeric(),
+    meanread_length = numeric(), medianread_length = numeric(),
+    pident_blast = character(), mean_depth_coverage = character(),
+    clair3_variants = character(), assigned_reads = character()
+  )
+  write.table(empty_df, outputtablepath, sep = ";", row.names = FALSE, quote = FALSE)
+  quit(save = "no", status = 0)
+}
 
 ALLDATA$count <- 1
 ALLDATA$readlength <- as.numeric(ALLDATA$readlength)
@@ -56,10 +98,10 @@ medianread_data <- aggregate(ALLDATA$readlength, by = list(ALLDATA$sample, ALLDA
 })
 colnames(medianread_data) <- c("sample", "step", "assignedref", "medianread_length")
 
-pident_data <- aggregate(ALLDATA$pident, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
+pident_data   <- aggregate(ALLDATA$pident, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
 colnames(pident_data) <- c("sample", "step", "assignedref", "pident_blast")
 
-depth_data <- aggregate(ALLDATA$depth, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
+depth_data    <- aggregate(ALLDATA$depth, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])
 colnames(depth_data) <- c("sample", "step", "assignedref", "mean_depth_coverage")
 
 variants_data <- aggregate(ALLDATA$variants, by = list(ALLDATA$sample, ALLDATA$step, ALLDATA$assignedref), function(x) x[1])

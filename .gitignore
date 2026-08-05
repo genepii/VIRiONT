@@ -1,9 +1,12 @@
-results_test/
+results_nextflow/
 fastq_pass/
+ref_hostile/
+work/
 .nextflow/
 *.sif
 *.mmi
 *.gz
 *.bam
-*.fasta
-*.fastq.gz
+work/
+.nextflow/
+.nextflow.log*
