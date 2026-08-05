@@ -32,14 +32,13 @@ process MERGE_FASTQ {
     elif [ "\$gz_count" -gt 0 ] || [ "\$fastq_count" -gt 0 ]; then
         {
             find -L "${input_dir}" -maxdepth 1 -type f -name "*.fastq" -exec cat {} +
-            find -L "${input_dir}" -maxdepth 1 -type f -name "*.gz" -exec zcat {} +
+            find -L "${input_dir}" -maxdepth 1 -type f -name "*.gz" -exec gzip -dc {} +
         } | gzip -c > ${sample_id}_merged.fastq.gz
     else
         echo "❌ ERREUR : Aucun fichier FASTQ ou FASTQ.GZ trouve dans ${input_dir}"
         exit 1
     fi
 
-    # Seuil de sécurité abaissé à 10 Ko (filtre uniquement les fichiers header de 20 octets)
     file_size=\$(stat -c%s "${sample_id}_merged.fastq.gz")
     if [ "\$file_size" -lt 10000 ]; then
         echo "❌ ERREUR CRITIQUE : Le fichier généré est vide ou corrompu (\${file_size} octets)"

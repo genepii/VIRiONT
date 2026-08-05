@@ -133,8 +133,14 @@ workflow {
     DEHOST_HOSTILE(MERGE_FASTQ.out.merged_fastq)
 
     // 02. Chopper, Amplicon_Sorter, BLAST & Rapport Global
-    TRIM_CHOPPER(DEHOST_HOSTILE.out.dehosted_fastq, Channel.value(min_length), Channel.value(max_length))
-    AMPLICON_SORTER(TRIM_CHOPPER.out.trimmed_fastq, Channel.value(min_length), Channel.value(max_length))
+    TRIM_CHOPPER(DEHOST_HOSTILE.out.dehosted_fastq, min_length, max_length)
+
+    // Sécurisation : filtrage des FASTQ non vides pour débloquer l'instanciation
+    TRIM_CHOPPER.out.trimmed_fastq
+        .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }
+        .set { valid_trimmed_ch }
+
+    AMPLICON_SORTER(valid_trimmed_ch, min_length, max_length)
     
     BLAST_GENOTYPE(
         AMPLICON_SORTER.out.consensus_clusters,

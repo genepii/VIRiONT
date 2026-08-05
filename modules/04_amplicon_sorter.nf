@@ -2,12 +2,12 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    MODULE 04: CLUSTERING ET SELECTION AMPLICON_SORTER
+    MODULE 04: CLUSTERING ET SELECTION (AMPLICON_SORTER)
 ========================================================================================
 */
 
 process AMPLICON_SORTER {
-    tag { sample_id }
+    tag "$sample_id"
     publishDir path: { "${params.outdir}/04_AMPLICON_SORTER/${sample_id}" }, mode: 'copy'
 
     input:
@@ -16,61 +16,69 @@ process AMPLICON_SORTER {
     val max_length
 
     output:
-    tuple val(sample_id), path("${sample_id}_*.fasta*"), optional: true, emit: consensus_clusters
+    tuple val(sample_id), path("${sample_id}_*.fasta"), optional: true, emit: consensus_clusters
 
     script:
+    def threads = task.cpus ?: 4
     """
-    echo "=== Execution Amplicon_Sorter pour ${sample_id} ==="
+    echo "=== Execution Amplicon_Sorter pour ${sample_id} [${min_length}-${max_length} bp] avec ${threads} threads ==="
 
-    # Restreindre le sur-threading des librairies C et forcer l'affichage direct des logs
     export OMP_NUM_THREADS=1
     export OPENBLAS_NUM_THREADS=1
     export MKL_NUM_THREADS=1
     export PYTHONUNBUFFERED=1
-    export TMPDIR=\$(pwd)
 
-    # 1. Décompression locale du FastQ
+    # 1. Décompression du FASTQ
     if [[ "${trimmed_fastq}" == *.gz ]]; then
-        gzip -dc ${trimmed_fastq} > input_reads.fastq
+        gunzip -c ${trimmed_fastq} > raw_input.fastq
     else
-        cp ${trimmed_fastq} input_reads.fastq
+        cp ${trimmed_fastq} raw_input.fastq
     fi
 
-    # 2. Lancement en mono-thread (-np 1) pour eviter le blocage multiprocessing sous Singularity
-    amplicon_sorter.py \
-        -i input_reads.fastq \
-        -min ${min_length} \
-        -max ${max_length} \
-        -maxr 1000 \
-        -sfq \
-        -c \
-        -np 1 \
-        -o .
+    # 2. Comptage des reads disponibles
+    NUM_READS=\$(awk 'NR%4==1' raw_input.fastq | wc -l)
+    echo "Reads disponibles pour ${sample_id} : \$NUM_READS"
 
-    rm -f input_reads.fastq
-
-    shopt -s nullglob
-
-    # 3. Récupération des consensus depuis les sous-dossiers (y compris .gz)
-    find . -mindepth 2 -type f \\( -name "*.fasta*" -o -name "*.fa*" -o -name "*.group*" -o -name "*.sorted*" \\) -exec mv {} . \\;
-
-    # 4. Conversion explicite en FASTA si des fichiers .group ou .sorted existent
-    for g in *.group *.sorted; do
-        if [ -f "\$g" ]; then
-            out_fa="\${g%.*}.fasta"
-            awk 'NR%4==1{sub(/^@/," >");print} NR%4==2{print}' "\$g" > "\$out_fa"
-        fi
-    done
-
-    # 5. Normalisation des noms de fichiers pour Nextflow
-    for f in *.fasta *.fasta.gz *.fa *.fa.gz; do
-        if [ -f "\$f" ]; then
-            if [[ "\$f" != "${sample_id}_"* ]]; then
-                mv "\$f" "${sample_id}_\$f"
+    if [ "\$NUM_READS" -ge 10 ]; then
+        # Subsampling de sécurité à 5 000 reads max
+        if [ "\$NUM_READS" -gt 5000 ]; then
+            echo "⚡ Sous-échantillonnage à 5000 reads pour accélérer Amplicon_Sorter..."
+            if command -v seqkit &> /dev/null; then
+                seqkit sample -n 5000 raw_input.fastq -o input_reads.fastq
+            else
+                paste - - - - < raw_input.fastq | shuf -n 5000 | tr '\\t' '\\n' > input_reads.fastq
             fi
+            rm -f raw_input.fastq
+        else
+            mv raw_input.fastq input_reads.fastq
         fi
-    done
 
-    shopt -u nullglob
+        # 3. Lancement d'Amplicon_Sorter avec redirection explicite pour débloquer Singularity
+        python3 \$(which amplicon_sorter.py) \
+            -i input_reads.fastq \
+            -o "${sample_id}" \
+            -min ${min_length} \
+            -max ${max_length} \
+            -maxr 5000 \
+            -ar \
+            -ssg 85 \
+            -ss 85 \
+            -sc 92 \
+            -np ${threads} > amplicon_sorter.log 2>&1 || true
+
+        # 4. Conversion des fichiers .sorted / .group générés en FASTA si nécessaire
+        for g in *.group *.sorted; do
+            if [ -f "\$g" ]; then
+                out_fa="\${g%.*}.fasta"
+                awk 'NR%4==1{sub(/^@/," >");print} NR%4==2{print}' "\$g" > "\$out_fa"
+            fi
+        done
+
+        # 5. Nettoyage
+        rm -f *unique*.fasta input_reads.fastq
+    else
+        echo "⚠️ Trop peu de reads pour effectuer le clustering (\$NUM_READS reads)."
+        rm -f raw_input.fastq
+    fi
     """
 }
