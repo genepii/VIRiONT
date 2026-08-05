@@ -1,7 +1,6 @@
 results_nextflow/
 fastq_pass/
 ref_hostile/
-work/
 .nextflow/
 *.sif
 *.mmi
