@@ -4,32 +4,48 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  # --- Dépendances de base du pipeline ---
-  - python=3.12
+  # --- Dépendances de base ---
+  - python=3.11
+  - pip
   - git
-  - hostile=2.0.2      # <--- Ajouté ici (version exacte de Bioconda)
-  - chopper=0.13.0
-  - minimap2=2.31
-  - samtools=1.24
-  - blast=2.17.0
+  - hostile
+  - chopper
+  - minimap2
+  - samtools
+  - blast
   - muscle>=5.3
-  - seqkit=2.13.0
-  - seqtk=1.5
-  - bedtools=2.31.1
-  - htslib>=1.24
+  - seqkit
+  - seqtk
+  - bedtools
+  - htslib
 
-  # --- Dépendances requises pour Amplicon_sorter ---
+  # --- Contrôle Qualité (QC ONT) ---
+  - nanoplot
+  - mosdepth
+
+  # --- Consensus De-novo & Polissage ---
+  - medaka
+  - spoa
+  - miniasm
+  - racon
+
+  # --- Amplicon_sorter ---
   - python-edlib
   - biopython
   - matplotlib
 
-  # --- Alignement Multiple & Phylogénie (IQ-TREE 3.1.3) ---
+  # --- Phylogénie ---
   - mafft>=7.520
-  - iqtree=3.1.3
+  - iqtree
 
-  # --- Dépendances R pour métrologie & génération d'arbres ---
+  # --- R ---
   - r-base>=4.3
   - r-ggplot2
   - r-gridextra
   - r-ape
   - r-phangorn
+
+  # --- Paquets Python gérés par PIP ---
+  - pip:
+    - pod5
+    - toulligqc

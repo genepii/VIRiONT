@@ -112,7 +112,7 @@ plot(
 )
 
 # Positionnement de la barre d'échelle
-add.scale.bar(x = 0, y = 0.5, cex = 0.8, lwd = 1.5)
+add.scale.bar(x = 0, y = 1, cex = 0.8, lwd = 1.5)
 
 # Légende en haut à droite
 legend(

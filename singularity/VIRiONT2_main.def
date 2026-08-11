@@ -9,10 +9,9 @@ VIRiONT2_main.yml /VIRiONT2_main.yml
 # 1. Création de l'environnement Conda
 /opt/conda/bin/conda env create -f /VIRiONT2_main.yml
 
-# 2. Téléchargement d'amplicon_sorter.py via wget
+# 2. Installation de l'outil amplicon_sorter
 mkdir -p /opt/amplicon_sorter
-/opt/conda/envs/VIRiONT2_main/bin/wget -q https://raw.githubusercontent.com/avierstr/amplicon_sorter/master/amplicon_sorter.py -O /opt/amplicon_sorter/amplicon_sorter.py
-
+/usr/bin/wget -q https://raw.githubusercontent.com/avierstr/amplicon_sorter/master/amplicon_sorter.py -O /opt/amplicon_sorter/amplicon_sorter.py
 
 Bootstrap: docker
 From: rockylinux:8
@@ -23,37 +22,30 @@ Stage: V1
 /opt/amplicon_sorter /opt/amplicon_sorter
 
 %environment
-export PATH=/opt/conda/envs/VIRiONT2_main/bin:/opt/sra-human-scrubber/scripts/:$PATH
-export JAVA_HOME=/opt/conda/envs/VIRiONT2_main
+export PATH=/opt/conda/envs/VIRiONT2_main/bin:$PATH
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
 %post
+# Installation des dépendances système nécessaires à Rocky 8
 dnf update -y
 dnf install -y epel-release
-# Activation du dépôt CRB requis sous Rocky 8
 dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
-
 dnf groupinstall -y "Development Tools"
-# Paquets système essentiels
-dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
+dnf install -y wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
 
-# Dossiers requis pour les points de montage
-mkdir -p /media /mnt /srv /data /scratch
-
-# --- Configuration d'Amplicon_sorter ---
-# Conversion des fin de lignes Windows (CRLF) vers Unix (LF)
+# Configuration d'Amplicon_sorter
 sed -i 's/\r$//' /opt/amplicon_sorter/amplicon_sorter.py
-
 chmod +x /opt/amplicon_sorter/amplicon_sorter.py
 ln -s /opt/amplicon_sorter/amplicon_sorter.py /opt/conda/envs/VIRiONT2_main/bin/amplicon_sorter.py
 
 %help
     SUMMARY
-    Conteneur de production optimisé pour le pipeline Nextflow VIRiONT2 avec Amplicon_sorter.
+    Conteneur de production pour le pipeline VIRiONT-Nextflow.
+    Inclut Medaka, Spoa, Miniasm pour le consensus robuste.
     Basé sur Rocky Linux 8.
 
 %labels
-    Version 2.0.0
+    Version 2.1.0
     Author SoufianeAlami
-    Date 2026-07-27
+    Date 2026-08-10

@@ -32,6 +32,26 @@ dehost_count <- read_safe(dehosttablepath)
 trimm_count  <- read_safe(trimtablepath)
 geno_count   <- read_safe(genotablepath)
 
+# Fonction pour standardiser chaque dataframe à exactement 8 colonnes (évite les erreurs de rbind)
+standardize_df <- function(df) {
+  if (nrow(df) == 0) return(data.frame())
+  ncol_current <- ncol(df)
+  if (ncol_current < 8) {
+    for (i in (ncol_current + 1):8) {
+      df[, i] <- NA
+    }
+  } else if (ncol_current > 8) {
+    df <- df[, 1:8]
+  }
+  colnames(df) <- c("readlength", "sample", "step", "assignedref", "pident", "depth", "variants", "assigned_reads")
+  return(df)
+}
+
+raw_count    <- standardize_df(raw_count)
+dehost_count <- standardize_df(dehost_count)
+trimm_count  <- standardize_df(trimm_count)
+geno_count   <- standardize_df(geno_count)
+
 ALLDATA <- rbind(raw_count, dehost_count, trimm_count, geno_count)
 
 if (nrow(ALLDATA) == 0) {
@@ -46,8 +66,6 @@ if (nrow(ALLDATA) == 0) {
   write.table(empty_df, outputtablepath, sep = ";", row.names = FALSE, quote = FALSE)
   quit(save = "no", status = 0)
 }
-
-colnames(ALLDATA) <- c("readlength", "sample", "step", "assignedref", "pident", "depth", "variants", "assigned_reads")
 
 # =====================================================================
 # 🧹 NETTOYAGE STRICT DES LIGNES PARASITES ET VIDES
