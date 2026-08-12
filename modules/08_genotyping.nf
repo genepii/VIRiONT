@@ -6,7 +6,8 @@ nextflow.enable.dsl=2
 ========================================================================================
 */
 process GENOTYPING {
-    publishDir "${params.outdir}/08_GENOTYPING", mode: 'copy'
+    publishDir "${params.outdir}/08_GENOTYPING", mode: 'copy', pattern: '{GLOBAL_Genotyping_Report.pdf,SUMMARY_Multi_Infection.tsv,*_blastnR.tsv,*_fmt0.txt,renamed_consensus/*.fasta}'
+    publishDir "${params.outdir}/00_SUPDATA", mode: 'copy', pattern: 'DB/*'
 
     input:
     path consensus_fastas  // Fichiers consensus émis par Medaka
@@ -19,18 +20,18 @@ process GENOTYPING {
     path "*_blastnR.tsv"                      , emit: sample_blast_tsv
     path "*_fmt0.txt"                         , emit: sample_blast_fmt0
     path "renamed_consensus/*.fasta"          , emit: genotyped_fastas
+    path "DB/*"                               , emit: db_files
 
     script:
     def base_name = ref_fasta.baseName
     """
     echo "=== 1. Indexation de la base de référence (${base_name}) ==="
 
-    DB_DIR="${projectDir}/00_SUPDATA/DB"
-    mkdir -p \$DB_DIR
+    mkdir -p DB
     mkdir -p renamed_consensus
 
-    if [ ! -f "\$DB_DIR/${base_name}.nhr" ]; then
-        makeblastdb -in "${ref_fasta}" -dbtype nucl -out "\$DB_DIR/${base_name}"
+    if [ ! -f "DB/${base_name}.nhr" ]; then
+        makeblastdb -in "${ref_fasta}" -dbtype nucl -out "DB/${base_name}"
     fi
 
     echo -e "sample\tgenotype\tbest_cluster\ttotal_reads\tratio_percent\tratio_num\tpident\tlength\tstrand\tstatus" > SUMMARY_Multi_Infection.tsv
@@ -49,7 +50,7 @@ process GENOTYPING {
             # BLAST Tabulaire
             blastn \\
                 -query "\$fq" \\
-                -db "\$DB_DIR/${base_name}" \\
+                -db "DB/${base_name}" \\
                 -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore" \\
                 -max_target_seqs 5 \\
                 -num_threads ${task.cpus} > tmp_hits.txt
@@ -62,7 +63,7 @@ process GENOTYPING {
             echo "==========================================================================" >> \${sample_id}_fmt0.txt
             blastn \\
                 -query "\$fq" \\
-                -db "\$DB_DIR/${base_name}" \\
+                -db "DB/${base_name}" \\
                 -outfmt 0 \\
                 -max_target_seqs 3 \\
                 -num_threads ${task.cpus} >> \${sample_id}_fmt0.txt
@@ -172,6 +173,6 @@ process GENOTYPING {
     done
 
     echo "=== 3. Génération du Rapport PDF Global ==="
-    Rscript ${projectDir}/bin/06_generate_report.R SUMMARY_Multi_Infection.tsv ${params.mi_cutoff} GLOBAL_Genotyping_Report.pdf
+    Rscript ${projectDir}/bin/08_generate_report.R SUMMARY_Multi_Infection.tsv ${params.mi_cutoff} GLOBAL_Genotyping_Report.pdf
     """
 }

@@ -1,0 +1,30 @@
+-----------------------------------------------------------
+amplicon_sorter version: 2025-10-09
+-----------------------------------------------------------
+- date and time = August 12, 2026, 04:29PM
+- input file = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/5d/4280fa6bef8c95b3cf0f3509dd09fb/barcode_01_026104456601_trimmed.fastq.gz
+- output folder = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/5d/4280fa6bef8c95b3cf0f3509dd09fb/barcode_01_026104456601_results/barcode_01_026104456601_trimmed
+- minlength = 800
+- maxlength = 5000
+- maxreads = 20000
+- used_reads = 20000
+- allreads = False
+- n_processes = 28
+- similar_genes = 80.0
+- similar_species_groups = 99 (Estimated)
+- similar_species = 85.0
+- similar_consensus = 96.0
+- length_difference_consensus = 8.0
+- save_fastq = False
+- compressed = False
+- random = False
+- compare_all = False
+- alignment = False
+- ambiguous bases = False
+- histogram_only = False
+-----------------------------------------------------------
+--> barcode_01_026104456601_trimmed_0_0.fasta contains 19324 sequences (96.62% of total)
+19324/19332 sequences assigned in group barcode_01_026104456601_trimmed_0.group (99.96% of group)
+0/578 sequences assigned in group barcode_01_026104456601_trimmed_1.group (0.0% of group)
+0/14 sequences assigned in group barcode_01_026104456601_trimmed_2.group (0.0% of group)
+76 sequences were not assigned in groups and saved in barcode_01_026104456601_trimmed_nogroup_unique.fasta (0.38% of total)

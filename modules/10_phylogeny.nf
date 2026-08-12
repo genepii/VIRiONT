@@ -30,7 +30,7 @@ process PHYLOGENY {
 
     echo "=== 4. Génération du rendu graphique PDF via R ==="
     if [ -f "aligned_consensus_and_refs.fasta.treefile" ]; then
-        Rscript ${projectDir}/bin/11_plot_tree.R aligned_consensus_and_refs.fasta.treefile PHYLOGRAM_tree.pdf || true
+        Rscript ${projectDir}/bin/10_plot_tree.R aligned_consensus_and_refs.fasta.treefile PHYLOGRAM_tree.pdf || true
     fi
     """
 }

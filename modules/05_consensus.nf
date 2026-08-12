@@ -20,11 +20,11 @@ process MEDAKA_CONSENSUS {
     """
     echo "=== Polissage Medaka pour ${sample_id} ==="
 
-    medaka_consensus \\
-        -i "${trimmed_fastq}" \\
-        -d "${preconsensus_fasta}" \\
-        -o medaka_out \\
-        -m "${medaka_model}" \\
+    medaka_consensus \
+        -i "${trimmed_fastq}" \
+        -d "${preconsensus_fasta}" \
+        -o medaka_out \
+        -m "${medaka_model}" \
         -t ${task.cpus}
 
     # Garantit que si medaka produit plusieurs contigs, chacun reçoit un ID unique (_c1, _c2...)
@@ -40,5 +40,20 @@ process MEDAKA_CONSENSUS {
         next;
     }
     { print }' medaka_out/consensus.fasta > "${sample_id}.fasta"
+    """
+}
+
+process COLLECT_CONSENSUS {
+    publishDir "${params.outdir}/05_CONSENSUS", mode: 'copy'
+
+    input:
+    path consensus_files
+
+    output:
+    path "all_cons.fasta", emit: all_consensus
+
+    script:
+    """
+    cat ${consensus_files} > all_cons.fasta
     """
 }

@@ -1,0 +1,6 @@
+qseqid	sseqid	pident	length	mismatch	gapopen	qstart	qend	sstart	send	evalue	bitscore
+barcode_07_TPOSP024	D3	98.812	1010	12	0	1	1010	2	1011	0.0	1799
+barcode_07_TPOSP024	D1	97.921	1010	21	0	1	1010	2	1011	0.0	1749
+barcode_07_TPOSP024	D2	97.426	1010	26	0	1	1010	2	1011	0.0	1722
+barcode_07_TPOSP024	D7	96.436	1010	36	0	1	1010	2	1011	0.0	1666
+barcode_07_TPOSP024	D4	96.238	1010	38	0	1	1010	2	1011	0.0	1655
