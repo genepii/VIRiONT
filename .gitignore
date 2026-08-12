@@ -1,4 +1,4 @@
-results_nextflow/
+results/
 fastq_pass/
 ref_hostile/
 .nextflow/
