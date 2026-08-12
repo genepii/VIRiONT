@@ -1,9 +1,9 @@
 -----------------------------------------------------------
 amplicon_sorter version: 2025-10-09
 -----------------------------------------------------------
-- date and time = August 11, 2026, 03:14PM
-- input file = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/f4/649e81673571eb0dac84fa33cad944/barcode_73_025026430002_trimmed.fastq.gz
-- output folder = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/f4/649e81673571eb0dac84fa33cad944/barcode_73_025026430002_results/barcode_73_025026430002_trimmed
+- date and time = August 11, 2026, 05:09PM
+- input file = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/a9/cf1a65090c3a3543a8de99ffa13a6a/barcode_73_025026430002_trimmed.fastq.gz
+- output folder = /srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/work/a9/cf1a65090c3a3543a8de99ffa13a6a/barcode_73_025026430002_results/barcode_73_025026430002_trimmed
 - minlength = 1000
 - maxlength = 5000
 - maxreads = 2000
@@ -24,11 +24,10 @@ amplicon_sorter version: 2025-10-09
 - histogram_only = False
 -----------------------------------------------------------
 --> barcode_73_025026430002_trimmed_0_0.fasta contains 1179 sequences (58.95% of total)
---> barcode_73_025026430002_trimmed_0_1.fasta contains 620 sequences (31.0% of total)
-1799/1823 sequences assigned in group barcode_73_025026430002_trimmed_0.group (98.68% of group)
-0/35 sequences assigned in group barcode_73_025026430002_trimmed_1.group (0.0% of group)
+--> barcode_73_025026430002_trimmed_0_1.fasta contains 623 sequences (31.15% of total)
+1802/1825 sequences assigned in group barcode_73_025026430002_trimmed_0.group (98.74% of group)
+0/40 sequences assigned in group barcode_73_025026430002_trimmed_1.group (0.0% of group)
 0/38 sequences assigned in group barcode_73_025026430002_trimmed_2.group (0.0% of group)
 0/40 sequences assigned in group barcode_73_025026430002_trimmed_3.group (0.0% of group)
 0/14 sequences assigned in group barcode_73_025026430002_trimmed_4.group (0.0% of group)
-0/7 sequences assigned in group barcode_73_025026430002_trimmed_5.group (0.0% of group)
 43 sequences were not assigned in groups and saved in barcode_73_025026430002_trimmed_nogroup_unique.fasta (2.15% of total)

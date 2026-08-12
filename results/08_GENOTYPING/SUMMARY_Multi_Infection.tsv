@@ -1,4 +1,4 @@
 sample	genotype	best_cluster	total_reads	ratio_percent	ratio_num	pident	length	strand	status
-barcode_79_025030220402	E	consensus_barcode_79_025030220402_trimmed_0_0(1801)	1801	100.00	100.00	98.987	3159	plus	VALIDATED
-barcode_73_025026430002	E	consensus_barcode_73_025026430002_trimmed_0_0(1179)	1179	100.00	100.00	98.892	3159	plus	VALIDATED
-barcode_73_025026430002	D1	consensus_barcode_73_025026430002_trimmed_0_1(620)	620	52.59	52.59	98.114	3129	plus	VALIDATED
+barcode_73_025026430002	D1	barcode_73_025026430002	1179	100.00	100.00	98.210	3129	plus	VALIDATED
+barcode_73_025026430002	E	barcode_73_025026430002_c2	623	52.84	52.84	98.766	3160	plus	VALIDATED
+barcode_79_025030220402	E	barcode_79_025030220402	1806	100.00	100.00	99.177	3159	minus	VALIDATED

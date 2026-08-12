@@ -6,7 +6,7 @@ nextflow.enable.dsl=2
 ========================================================================================
 */
 process MEDAKA_CONSENSUS {
-    tag "$sample_id"
+    tag { sample_id }
     publishDir { "${params.outdir}/05_CONSENSUS/${sample_id}" }, mode: 'copy'
 
     input:
@@ -14,20 +14,31 @@ process MEDAKA_CONSENSUS {
     val medaka_model
 
     output:
-    tuple val(sample_id), path("${sample_id}_consensus.fasta"), emit: final_consensus
-    tuple val(sample_id), path(trimmed_fastq), path("${sample_id}_consensus.fasta"), emit: for_bam
+    tuple val(sample_id), path("${sample_id}.fasta"), emit: final_consensus
 
     script:
     """
     echo "=== Polissage Medaka pour ${sample_id} ==="
 
-    medaka_consensus \
-        -i ${trimmed_fastq} \
-        -d ${preconsensus_fasta} \
-        -o medaka_out \
-        -m ${medaka_model} \
+    medaka_consensus \\
+        -i "${trimmed_fastq}" \\
+        -d "${preconsensus_fasta}" \\
+        -o medaka_out \\
+        -m "${medaka_model}" \\
         -t ${task.cpus}
 
-    mv medaka_out/consensus.fasta ${sample_id}_consensus.fasta
+    # Garantit que si medaka produit plusieurs contigs, chacun reçoit un ID unique (_c1, _c2...)
+    awk -v sid="${sample_id}" '
+    BEGIN { c = 0; }
+    /^>/ {
+        c++;
+        if (c == 1) {
+            print ">" sid;
+        } else {
+            print ">" sid "_c" c;
+        }
+        next;
+    }
+    { print }' medaka_out/consensus.fasta > "${sample_id}.fasta"
     """
 }

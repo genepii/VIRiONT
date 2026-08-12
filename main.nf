@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    VIRiONT_NF - PIPELINE FULL + INTEGRATED QC (MOSDEPTH & METRICS SUMMARY)
+    VIRiONT_NF - PIPELINE FULL + INTEGRATED QC & PHYLOGENY
 ========================================================================================
 */
 
@@ -17,6 +17,7 @@ include { ALIGN_BAM          } from './modules/06_bam.nf'
 include { CALL_VCF           } from './modules/07_vcf.nf'
 include { GENOTYPING         } from './modules/08_genotyping.nf'
 include { QC_ANALYSIS        } from './modules/09_qc_analysis.nf'
+include { PHYLOGENY          } from './modules/10_phylogeny.nf'
 
 workflow {
     def fastq_path = file(params.fastq_dir)
@@ -121,7 +122,23 @@ workflow {
         .collect()
         .set { all_consensus_ch }
 
-    GENOTYPING(all_consensus_ch, target_ref_file)
+    // Copie sécurisée des CSVs vers un dossier temporaire en retournant l'objet File
+    AMPLICON_SORTER.out.results_csv
+        .map { sample_id, csv ->
+            def target_dir = file("${workDir}/tmp_csvs")
+            target_dir.mkdirs()
+            def target_file = file("${target_dir}/${sample_id}_results.csv")
+            csv.copyTo(target_file)
+            return target_file
+        }
+        .collect()
+        .set { all_sorter_csvs_ch }
+
+    GENOTYPING(
+        all_consensus_ch,
+        target_ref_file,
+        all_sorter_csvs_ch
+    )
 
     // =====================================================================================
     // 05. CONTROL QUALITÉ CENTRALISÉ (MOSDEPTH & METRICS SUMMARY TABLE)
@@ -143,5 +160,13 @@ workflow {
         all_bais,
         all_vcfs,
         GENOTYPING.out.summary_tsv
+    )
+
+    // =====================================================================================
+    // 06. MODULE PHYLOGÉNIE (RE-ORIENTATION, MAFFT, IQ-TREE & PLOT R)
+    // =====================================================================================
+    PHYLOGENY(
+        GENOTYPING.out.genotyped_fastas.collect(),
+        target_ref_file
     )
 }
