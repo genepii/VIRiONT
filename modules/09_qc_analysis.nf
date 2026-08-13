@@ -16,11 +16,14 @@ process QC_ANALYSIS {
     path bais
     path vcfs
     path summary_tsv
+    path renamed_consensus
     val min_length
     val max_length
 
     output:
     path "QC_Metrics_Summary.tsv", emit: qc_table
+    path "matrix_table.tsv"      , emit: matrix_table, optional: true
+    path "matrix_comp.pdf"       , emit: matrix_pdf  , optional: true
     path "*.mosdepth.*"          , optional: true
 
     script:
@@ -33,7 +36,10 @@ process QC_ANALYSIS {
         fi
     done
 
-    echo "=== 2. Exécution du script R QC ==="
+    echo "=== 2. Génération de la table de synthèse QC ==="
     Rscript ${projectDir}/bin/09_qc_analysis.R "${summary_tsv}" "${min_length}" "${max_length}"
+
+    echo "=== 3. Génération de la matrice pairwise & Heatmap ==="
+    Rscript ${projectDir}/bin/09_pairwise_matrix.R
     """
 }

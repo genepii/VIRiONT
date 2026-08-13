@@ -167,7 +167,7 @@ workflow {
     )
 
     // =====================================================================================
-    // 05. CONTROL QUALITÉ CENTRALISÉ (MOSDEPTH & METRICS SUMMARY TABLE)
+    // 05. CONTROL QUALITÉ CENTRALISÉ (MOSDEPTH & METRICS SUMMARY TABLE & PAIRWISE MATRIX)
     // =====================================================================================
     MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
     DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
@@ -186,6 +186,7 @@ workflow {
         all_bais,
         all_vcfs,
         GENOTYPING.out.summary_tsv,
+        GENOTYPING.out.genotyped_fastas.collect(),
         min_length,
         max_length
     )
