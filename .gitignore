@@ -1,6 +1,7 @@
 results/
 fastq_pass/
 ref_hostile/
+tmp/
 .nextflow/
 *.sif
 *.mmi
