@@ -97,7 +97,7 @@ for (rf in raw_files) {
 
   # 4. STEP 05_GENOTYPING
   sample_summary <- summary_dt[summary_dt$sample == sid & tolower(summary_dt$status) == "validated", ]
-  
+
   # Couverture moyenne via Mosdepth
   mosdepth_summary <- list.files(".", pattern = paste0("^", sid, ".*\\.mosdepth\\.summary\\.txt$"), full.names = TRUE)[1]
   mean_cov <- "NA"
@@ -143,9 +143,19 @@ for (rf in raw_files) {
 }
 
 # Assemblage et sauvegarde
+output_file <- "RUN_METRICS_SUMMARY_TABLE.tsv"
+qc_columns <- c(
+  "sample", "step", "assignedref", "read_count", "minlengthread",
+  "maxlengthread", "meanread_length", "medianread_length",
+  "pident_blast", "mean_depth_coverage", "clair3_variants", "assigned_reads"
+)
+
 if (length(qc_list) > 0) {
   final_df <- do.call(rbind, qc_list)
-  write.table(final_df, "QC_Metrics_Summary.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 } else {
-  cat("Aucun échantillon valide à exporter dans le QC.\n")
+  cat("Aucun échantillon valide à exporter dans le QC. Création d'une table vide avec en-têtes.\n")
+  final_df <- data.frame(matrix(ncol = length(qc_columns), nrow = 0))
+  colnames(final_df) <- qc_columns
 }
+
+write.table(final_df, output_file, sep = "\t", quote = FALSE, row.names = FALSE)

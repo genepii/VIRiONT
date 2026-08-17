@@ -27,16 +27,12 @@ process MEDAKA_CONSENSUS {
         -m "${medaka_model}" \
         -t ${task.cpus}
 
-    # Garantit que si medaka produit plusieurs contigs, chacun reçoit un ID unique (_c1, _c2...)
-    awk -v sid="${sample_id}" '
-    BEGIN { c = 0; }
-    /^>/ {
-        c++;
-        if (c == 1) {
-            print ">" sid;
-        } else {
-            print ">" sid "_c" c;
-        }
+    # Nettoie les en-têtes en conservant strictement le nom exact du cluster d'origine
+    awk '/^>/ {
+        # Retire les annotations techniques ajoutées par Medaka (ex: medaka:xxx, etc.)
+        sub(/[ \t].*/, "");
+        sub(/:.*/, "");
+        print;
         next;
     }
     { print }' medaka_out/consensus.fasta > "${sample_id}.fasta"
