@@ -1,0 +1,26 @@
+-----------------------------------------------------------
+amplicon_sorter version: 2025-10-09
+-----------------------------------------------------------
+- date and time = August 19, 2026, 04:56PM
+- input file = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/71/2de7bb48662329ed76c55a8c54db68/barcode_67_TEXTP020xPCR1test_trimmed.fastq.gz
+- output folder = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/71/2de7bb48662329ed76c55a8c54db68/barcode_67_TEXTP020xPCR1test_results/barcode_67_TEXTP020xPCR1test_trimmed
+- minlength = 1000
+- maxlength = 5000
+- maxreads = 10000
+- used_reads = 14
+- allreads = True
+- n_processes = 12
+- similar_genes = 80.0
+- similar_species_groups = 90.0
+- similar_species = 85.0
+- similar_consensus = 94.0
+- length_difference_consensus = 8.0
+- save_fastq = False
+- compressed = False
+- random = False
+- compare_all = False
+- alignment = False
+- ambiguous bases = False
+- histogram_only = False
+-----------------------------------------------------------
+14 sequences were not assigned in groups and saved in barcode_67_TEXTP020xPCR1test_trimmed_nogroup_unique.fasta (100.0% of total)

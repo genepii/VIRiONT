@@ -37,8 +37,16 @@ process COUNT_REAL_READS {
 
     script:
     """
-    echo "=== Comptage exhaustif des reads réels par cluster pour ${sample_id} (tous les reads du barcode, sans sous-échantillonnage) ==="
-    echo -e "cluster_id\\treal_read_count" > ${sample_id}_real_counts.tsv
-    samtools idxstats ${bam} | awk 'BEGIN{OFS="\\t"} \$1 != "*" && \$3 > 0 {print \$1, \$3}' >> ${sample_id}_real_counts.tsv
+    echo "=== Comptage exhaustif des reads réels UNIQUES par cluster pour ${sample_id} ==="
+    echo -e "cluster_id\treal_read_count" > ${sample_id}_real_counts.tsv
+
+    # Récupération des noms de contigs de référence présents dans le BAM
+    samtools idxstats ${bam} | awk '\$1 != "*" {print \$1}' | while read -r ctg; do
+        # Compte le nombre de reads uniques primaires assignés à ce contig
+        count=\$(samtools view -F 2308 "${bam}" "\$ctg" | cut -f1 | sort -u | wc -l)
+        if [ "\$count" -gt 0 ]; then
+            echo -e "\${ctg}\t\${count}" >> ${sample_id}_real_counts.tsv
+        fi
+    done
     """
 }

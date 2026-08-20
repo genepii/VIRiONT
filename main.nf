@@ -5,7 +5,6 @@ nextflow.enable.dsl=2
     VIRiONT_NF - PIPELINE COMPLET (FIL CONDUCTEUR CLINIQUE UNIFIÉ)
 ========================================================================================
 */
-// Importation des modules
 include { GENERATE_RUN_METADATA                          } from './modules/00_init_logs.nf'
 include { MERGE_FASTQ                                    } from './modules/01_merge.nf'
 include { DEHOST_HOSTILE                                 } from './modules/02_dehost.nf'
@@ -13,17 +12,17 @@ include { TRIM_CHOPPER                                   } from './modules/03_ch
 include { AMPLICON_SORTER                                } from './modules/04_amplicon_sorter.nf'
 include { MEDAKA_CONSENSUS; COLLECT_CONSENSUS            } from './modules/05_consensus.nf'
 include { ALIGN_BAM; COUNT_REAL_READS                    } from './modules/06_bam.nf'
+include { ALIGN_GENOTYPE_BAM                             } from './modules/06b_align_genotype.nf'
 include { CALL_VCF                                       } from './modules/07_vcf.nf'
 include { GENOTYPING                                     } from './modules/08_genotyping.nf'
 include { QC_ANALYSIS                                    } from './modules/09_qc_analysis.nf'
-include { PHYLOGENY                                      } from './modules/10_phylogeny.nf'
+include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/10_phylogeny.nf'
 include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/11_coverage.nf'
 include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS  } from './modules/12_mutation.nf'
+
 workflow {
     def fastq_path = file(params.fastq_dir)
-    // =====================================================================================
-    // A. Détection du CSV & Détermination des Paramètres Cliniques
-    // =====================================================================================
+
     def csv_file = fastq_path.listFiles().find { file ->
         file.name.endsWith('.csv') && (
             file.name.contains("Sample_Sheet") ||
@@ -55,15 +54,9 @@ workflow {
     } else {
         target_ref_file = (tech_name == "POL") ? file("${projectDir}/ref/HBV_subtype_POL.fasta") : file("${projectDir}/ref/HBV_subtype_WG.fasta")
     }
-    // =====================================================================================
-    // 00. INITIALISATION DES LOGS
-    // =====================================================================================
-    GENERATE_RUN_METADATA(
-        fastq_path,
-        target_ref_file,
-        min_length,
-        max_length
-    )
+
+    GENERATE_RUN_METADATA(fastq_path, target_ref_file, min_length, max_length)
+
     def csv_text = csv_file.text
     def separator = csv_text.contains(";") ? ';' : ','
     Channel
@@ -89,6 +82,7 @@ workflow {
         }
         .filter { it != null }
         .set { samples_ch }
+
     // =====================================================================================
     // WORKFLOW PRINCIPAL
     // =====================================================================================
@@ -99,6 +93,7 @@ workflow {
     TRIM_CHOPPER.out.trimmed_fastq
         .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }
         .set { valid_trimmed_ch }
+
     // 02. Clustering & Polishing
     AMPLICON_SORTER(valid_trimmed_ch, min_length, max_length)
     valid_trimmed_ch
@@ -108,19 +103,17 @@ workflow {
     COLLECT_CONSENSUS(
         MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, fasta -> fasta }.collect()
     )
-    // 03. Alignement BAM (sur TOUS les reads trimmed, contre les clusters/génotypes détectés)
+
+    // 03. Alignement BAM "brut" (multi-clusters) — sert UNIQUEMENT à compter les reads
+    //     réels par cluster pour alimenter la décision VALIDATED/REJECTED de GENOTYPING.
+    //     N'est PLUS utilisé pour le VCF ni la couverture finale (voir phase 06b/07/11).
     valid_trimmed_ch
         .join(MEDAKA_CONSENSUS.out.final_consensus)
         .set { bam_input_ch }
     ALIGN_BAM(bam_input_ch)
-
-    // 03bis. Comptage exhaustif des reads réels par cluster (remplace le CSV sous-échantillonné
-    // d'amplicon_sorter comme source de vérité pour les ratios cliniques)
     COUNT_REAL_READS(ALIGN_BAM.out.bam_bai)
 
-    // 04. Variant Calling Clair3
-    CALL_VCF(ALIGN_BAM.out.for_vcf, params.clair3_model)
-    // 05. Hub de Génotypage & Création du Fil Conducteur
+    // 04. Hub de Génotypage & Création du Fil Conducteur
     COUNT_REAL_READS.out.real_counts
         .map { sample_id, tsv ->
             def target_dir = file("${workDir}/tmp_csvs")
@@ -136,15 +129,46 @@ workflow {
         target_ref_file,
         all_sorter_csvs_ch
     )
+
     // =====================================================================================
-    // 06. CONTRÔLE QUALITÉ CENTRALISÉ (Utilise validated_all_fasta)
+    // 05. RÉALIGNEMENT SPÉCIFIQUE PAR GÉNOTYPE VALIDÉ (co-infection-safe)
+    // =====================================================================================
+    // Le manifest donne la correspondance exacte sample_id/genotype/fichier fasta,
+    // produite par GENOTYPING — pas de parsing fragile de nom de fichier.
+    GENOTYPING.out.genotyped_fastas
+        .flatten()
+        .map { f -> tuple(f.name, f) }
+        .set { genotype_fasta_by_name }
+
+    GENOTYPING.out.genotype_manifest
+        .splitCsv(header: true, sep: '\t')
+        .map { row -> tuple(row.filename, row.sample_id, row.genotype) }
+        .combine(genotype_fasta_by_name, by: 0)
+        .map { filename, sample_id, genotype, fasta -> tuple(sample_id, genotype, fasta) }
+        .set { genotype_ref_ch }
+
+    // Associe chaque (sample_id, genotype) au fichier trimmed COMPLET du barcode
+    // (un même sample_id peut apparaître plusieurs fois si co-infection — chaque
+    // génotype réutilise les mêmes reads complets, réalignés individuellement).
+    genotype_ref_ch
+        .combine(valid_trimmed_ch, by: 0)
+        .map { sample_id, genotype, fasta, trimmed_fastq -> tuple(sample_id, genotype, trimmed_fastq, fasta) }
+        .set { genotype_align_input_ch }
+
+    ALIGN_GENOTYPE_BAM(genotype_align_input_ch)
+
+    // 06. Variant Calling Clair3 — un VCF strictement par génotype validé
+    CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
+
+    // =====================================================================================
+    // 07. CONTRÔLE QUALITÉ CENTRALISÉ
     // =====================================================================================
     MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
     DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
     TRIM_CHOPPER.out.trimmed_fastq.map { id, fq -> fq }.collect().set { all_trimmed }
     ALIGN_BAM.out.bam_bai.map { id, bam, bai -> bam }.collect().set { all_bams }
     ALIGN_BAM.out.bam_bai.map { id, bam, bai -> bai }.collect().set { all_bais }
-    CALL_VCF.out.map { it instanceof List ? it[1] : it }.collect().set { all_vcfs }
+    CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> vcf }.collect().set { all_vcfs }
     QC_ANALYSIS(
         all_raw,
         all_dehosted,
@@ -157,45 +181,32 @@ workflow {
         min_length,
         max_length
     )
+
     // =====================================================================================
-    // 07. PHYLOGÉNIE (Utilise le même validated_all_fasta)
+    // 08. PHYLOGÉNIE (squelette de références + génotypes présents en entier)
     // =====================================================================================
-    PHYLOGENY(
-        GENOTYPING.out.validated_all_fasta,
-        target_ref_file
-    )
-    // =====================================================================================
-    // 08. COUVERTURE GÉNOMIQUE
-    // =====================================================================================
-    COMPUTE_BAM_COVERAGE(ALIGN_BAM.out.bam_bai)
-    PLOT_GLOBAL_COVERAGE(
-        COMPUTE_BAM_COVERAGE.out.sample_cov.collect(),
+    PREPARE_TREE_REFS(
+        target_ref_file,
         GENOTYPING.out.summary_tsv
     )
+    PHYLOGENY(
+        GENOTYPING.out.validated_all_fasta,
+        PREPARE_TREE_REFS.out.filtered_refs
+    )
+
     // =====================================================================================
-    // 09. SCREENING DES MUTATIONS
+    // 09. COUVERTURE GÉNOMIQUE — désormais un facet EXACTEMENT par génotype validé
     // =====================================================================================
-    GENOTYPING.out.summary_tsv
-        .splitCsv(header: true, sep: '\t')
-        .filter { row -> row.status == 'VALIDATED' || row.status == 'validated' }
-        .map { row ->
-            def sample_id = row.sample
-            def geno_raw  = row.genotype ?: "GTD"
-            def m = (geno_raw =~ /[A-I]/)
-            def gt = m ? "GT${m[0]}" : "GTD"
-            return tuple(sample_id, gt)
-        }
-        .unique()
-        .combine(
-            CALL_VCF.out.map { item -> tuple(item[0], item[1]) },
-            by: 0
-        )
-        .map { sample_id, gt, vcf_gz ->
-            return tuple(sample_id, gt, vcf_gz)
-        }
-        .set { vcf_genotyped_ch }
+    COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.bam_bai)
+    PLOT_GLOBAL_COVERAGE(
+        COMPUTE_BAM_COVERAGE.out.sample_cov.collect()
+    )
+
+    // =====================================================================================
+    // 10. SCREENING DES MUTATIONS — VCF déjà spécifique au génotype, plus de join fragile
+    // =====================================================================================
     SEARCH_HBV_MUTATIONS(
-        vcf_genotyped_ch,
+        CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
         virus_name,
         file(params.mutation_tables ?: "${projectDir}/mutation_table")
     )

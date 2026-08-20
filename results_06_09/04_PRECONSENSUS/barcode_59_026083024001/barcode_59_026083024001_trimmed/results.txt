@@ -1,0 +1,49 @@
+-----------------------------------------------------------
+amplicon_sorter version: 2025-10-09
+-----------------------------------------------------------
+- date and time = August 19, 2026, 04:57PM
+- input file = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/b9/9e40bf4b52be90909fb970a3665fc9/barcode_59_026083024001_trimmed.fastq.gz
+- output folder = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/b9/9e40bf4b52be90909fb970a3665fc9/barcode_59_026083024001_results/barcode_59_026083024001_trimmed
+- minlength = 1000
+- maxlength = 5000
+- maxreads = 10000
+- used_reads = 9216
+- allreads = False
+- n_processes = 12
+- similar_genes = 80.0
+- similar_species_groups = 90.0
+- similar_species = 85.0
+- similar_consensus = 94.0
+- length_difference_consensus = 8.0
+- save_fastq = False
+- compressed = False
+- random = True
+- compare_all = False
+- alignment = False
+- ambiguous bases = False
+- histogram_only = False
+-----------------------------------------------------------
+--> barcode_59_026083024001_trimmed_0_0.fasta contains 2994 sequences (32.49% of total)
+--> barcode_59_026083024001_trimmed_0_1.fasta contains 4386 sequences (47.59% of total)
+--> barcode_59_026083024001_trimmed_0_2.fasta contains 37 sequences (0.4% of total)
+--> barcode_59_026083024001_trimmed_0_3.fasta contains 18 sequences (0.2% of total)
+--> barcode_59_026083024001_trimmed_0_4.fasta contains 16 sequences (0.17% of total)
+--> barcode_59_026083024001_trimmed_0_5.fasta contains 14 sequences (0.15% of total)
+--> barcode_59_026083024001_trimmed_0_6.fasta contains 84 sequences (0.91% of total)
+--> barcode_59_026083024001_trimmed_0_7.fasta contains 13 sequences (0.14% of total)
+--> barcode_59_026083024001_trimmed_0_8.fasta contains 22 sequences (0.24% of total)
+--> barcode_59_026083024001_trimmed_0_9.fasta contains 360 sequences (3.91% of total)
+--> barcode_59_026083024001_trimmed_0_10.fasta contains 10 sequences (0.11% of total)
+--> barcode_59_026083024001_trimmed_0_11.fasta contains 60 sequences (0.65% of total)
+--> barcode_59_026083024001_trimmed_0_12.fasta contains 28 sequences (0.3% of total)
+--> barcode_59_026083024001_trimmed_0_13.fasta contains 55 sequences (0.6% of total)
+--> barcode_59_026083024001_trimmed_0_14.fasta contains 24 sequences (0.26% of total)
+--> barcode_59_026083024001_trimmed_0_15.fasta contains 16 sequences (0.17% of total)
+--> barcode_59_026083024001_trimmed_0_16.fasta contains 19 sequences (0.21% of total)
+--> barcode_59_026083024001_trimmed_0_17.fasta contains 26 sequences (0.28% of total)
+--> barcode_59_026083024001_trimmed_0_18.fasta contains 27 sequences (0.29% of total)
+8209/8659 sequences assigned in group barcode_59_026083024001_trimmed_0.group (94.8% of group)
+--> barcode_59_026083024001_trimmed_1_0.fasta contains 318 sequences (3.45% of total)
+318/333 sequences assigned in group barcode_59_026083024001_trimmed_1.group (95.5% of group)
+0/8 sequences assigned in group barcode_59_026083024001_trimmed_2.group (0.0% of group)
+216 sequences were not assigned in groups and saved in barcode_59_026083024001_trimmed_nogroup_unique.fasta (2.34% of total)

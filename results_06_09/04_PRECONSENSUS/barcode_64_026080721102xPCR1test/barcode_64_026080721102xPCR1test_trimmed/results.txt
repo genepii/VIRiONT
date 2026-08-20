@@ -1,0 +1,32 @@
+-----------------------------------------------------------
+amplicon_sorter version: 2025-10-09
+-----------------------------------------------------------
+- date and time = August 19, 2026, 04:56PM
+- input file = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/44/4e29ba94a6763b7b432396e9785150/barcode_64_026080721102xPCR1test_trimmed.fastq.gz
+- output folder = /srv/scratch/chu-lyon.fr/alamiso/nxf_work/44/4e29ba94a6763b7b432396e9785150/barcode_64_026080721102xPCR1test_results/barcode_64_026080721102xPCR1test_trimmed
+- minlength = 1000
+- maxlength = 5000
+- maxreads = 10000
+- used_reads = 761
+- allreads = True
+- n_processes = 12
+- similar_genes = 80.0
+- similar_species_groups = 90.0
+- similar_species = 85.0
+- similar_consensus = 94.0
+- length_difference_consensus = 8.0
+- save_fastq = False
+- compressed = False
+- random = False
+- compare_all = False
+- alignment = False
+- ambiguous bases = False
+- histogram_only = False
+-----------------------------------------------------------
+--> barcode_64_026080721102xPCR1test_trimmed_0_0.fasta contains 75 sequences (9.86% of total)
+75/77 sequences assigned in group barcode_64_026080721102xPCR1test_trimmed_0.group (97.4% of group)
+--> barcode_64_026080721102xPCR1test_trimmed_1_0.fasta contains 638 sequences (83.84% of total)
+638/639 sequences assigned in group barcode_64_026080721102xPCR1test_trimmed_1.group (99.84% of group)
+--> barcode_64_026080721102xPCR1test_trimmed_2_0.fasta contains 10 sequences (1.31% of total)
+10/10 sequences assigned in group barcode_64_026080721102xPCR1test_trimmed_2.group (100.0% of group)
+35 sequences were not assigned in groups and saved in barcode_64_026080721102xPCR1test_trimmed_nogroup_unique.fasta (4.6% of total)

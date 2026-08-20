@@ -123,7 +123,7 @@ Result repository                       : ${params.outdir}/
 Reference database used                 : ${target_ref.name}
 Read minlength                          : ${min_len} bp
 Read maxlength                          : ${max_len} bp
-Quality filtering (Q-score)             : 10
+Quality filtering (Q-score)             : 12
 Min reads threshold                     : ${params.min_reads}
 Max reads subsampling                   : ${params.max_reads}
 Multi-infection cutoff                  : ${params.mi_cutoff}%

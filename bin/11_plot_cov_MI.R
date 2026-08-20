@@ -1,22 +1,16 @@
 #!/usr/bin/env Rscript
-
 # =====================================================================
 # VIRiONT_NF - Rendu des Profils de Couverture Génomique (11_COVERAGE)
 # =====================================================================
-
 suppressPackageStartupMessages({
   library(ggplot2)
 })
-
 argv <- commandArgs(TRUE)
-
 if (length(argv) < 2) {
-  stop("Usage: Rscript 15_plot_cov_MI.R <cov_sum_file> <output_pdf> [summary_tsv]")
+  stop("Usage: Rscript 11_plot_cov_MI.R <cov_sum_file> <output_pdf>")
 }
-
 cov_file    <- as.character(argv[1])
 output_pdf  <- as.character(argv[2])
-summary_tsv <- ifelse(length(argv) >= 3, as.character(argv[3]), "")
 
 if (!file.exists(cov_file) || file.info(cov_file)$size == 0) {
   cat("⚠️ Fichier de couverture introuvable ou vide. Graphique non généré.\n")
@@ -32,46 +26,21 @@ if (is.null(covdata) || nrow(covdata) == 0) {
   quit(save = "no", status = 0)
 }
 
-colnames(covdata)[1:5] <- c("REF", "POS", "COV", "SAMPLE", "METHOD")
-
+# 6 colonnes désormais : REF, POS, COV, SAMPLE, GENOTYPE, METHOD
+# (GENOTYPE injecté directement par Nextflow — un BAM = un génotype précis,
+# plus besoin de mapping fragile via summary_tsv/regex)
+colnames(covdata)[1:6] <- c("REF", "POS", "COV", "SAMPLE", "GENOTYPE", "METHOD")
 covdata$POS <- as.numeric(covdata$POS)
 covdata$COV <- as.numeric(covdata$COV)
 
-# Filtrage des lignes valides
 covdata <- covdata[!is.na(covdata$POS) & !is.na(covdata$COV), ]
-
 if (nrow(covdata) == 0) {
   cat("⚠️ Aucune coordonnée valide après nettoyage.\n")
   quit(save = "no", status = 0)
 }
 
-# Chargement optionnel des génotypes depuis SUMMARY_Multi_Infection.tsv
-geno_map <- list()
-if (summary_tsv != "" && file.exists(summary_tsv)) {
-  sum_data <- tryCatch({
-    read.table(summary_tsv, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
-  }, error = function(e) NULL)
-  
-  if (!is.null(sum_data) && "best_cluster" %in% colnames(sum_data) && "genotype" %in% colnames(sum_data)) {
-    for (i in seq_len(nrow(sum_data))) {
-      geno_map[[ as.character(sum_data$best_cluster[i]) ]] <- as.character(sum_data$genotype[i])
-    }
-  }
-}
-
-# Association propre du génotype
-covdata$GENOTYPE <- sapply(covdata$REF, function(r) {
-  if (r %in% names(geno_map)) {
-    return(geno_map[[r]])
-  } else {
-    sub(".*_([^_]+)$", "\\1", r)
-  }
-})
-
-# Formatage propre sans répétitions
 covdata$FACET_TITLE <- paste0(covdata$SAMPLE, "\nGénotype : ", covdata$GENOTYPE)
 
-# Génération du graphique ggplot
 covplot <- ggplot(covdata, aes(x = POS, y = COV)) +
   geom_line(aes(color = GENOTYPE), show.legend = FALSE, alpha = 0.8, linewidth = 0.6) +
   scale_color_discrete() +
@@ -91,7 +60,6 @@ covplot <- ggplot(covdata, aes(x = POS, y = COV)) +
   ) +
   facet_wrap(~ FACET_TITLE, scales = "free", ncol = 2)
 
-# Calcul dynamique de la hauteur du fichier PDF
 num_facets  <- length(unique(covdata$FACET_TITLE))
 num_rows    <- ceiling(num_facets / 2)
 calc_height <- max(4, 3.2 * num_rows)
@@ -103,5 +71,4 @@ ggsave(
   height    = calc_height,
   limitsize = FALSE
 )
-
-cat("✅ Graphique propre généré avec succès :", output_pdf, "\n")
+cat("✅ Graphique propre généré avec succès :", output_pdf, "— un facet par génotype validé, exactement.\n")
