@@ -13,7 +13,7 @@ cov_file    <- as.character(argv[1])
 output_pdf  <- as.character(argv[2])
 
 if (!file.exists(cov_file) || file.info(cov_file)$size == 0) {
-  cat("⚠️ Fichier de couverture introuvable ou vide. Graphique non généré.\n")
+  cat("Fichier de couverture introuvable ou vide. Graphique non généré.\n")
   quit(save = "no", status = 0)
 }
 
@@ -22,7 +22,7 @@ covdata <- tryCatch({
 }, error = function(e) NULL)
 
 if (is.null(covdata) || nrow(covdata) == 0) {
-  cat("⚠️ Aucune donnée de couverture valide à lire.\n")
+  cat("Aucune donnée de couverture valide à lire.\n")
   quit(save = "no", status = 0)
 }
 
@@ -35,7 +35,7 @@ covdata$COV <- as.numeric(covdata$COV)
 
 covdata <- covdata[!is.na(covdata$POS) & !is.na(covdata$COV), ]
 if (nrow(covdata) == 0) {
-  cat("⚠️ Aucune coordonnée valide après nettoyage.\n")
+  cat("Aucune coordonnée valide après nettoyage.\n")
   quit(save = "no", status = 0)
 }
 
@@ -71,4 +71,4 @@ ggsave(
   height    = calc_height,
   limitsize = FALSE
 )
-cat("✅ Graphique propre généré avec succès :", output_pdf, "— un facet par génotype validé, exactement.\n")
+cat("Graphique propre généré avec succès :", output_pdf, "— un facet par génotype validé, exactement.\n")

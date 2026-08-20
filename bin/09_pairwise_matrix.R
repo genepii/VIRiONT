@@ -5,7 +5,7 @@ suppressPackageStartupMessages({
 args <- commandArgs(trailingOnly = TRUE)
 fasta_file <- ifelse(length(args) >= 1, args[1], "validated_consensus_all.fasta")
 if (!file.exists(fasta_file)) {
-  cat("⚠️ Aucun fichier consensus validé trouvé pour la matrice.\n")
+  cat("Aucun fichier consensus validé trouvé pour la matrice.\n")
   quit(save = "no", status = 0)
 }
 
@@ -139,4 +139,4 @@ p <- ggplot(plot_data, aes(x = comp1, y = comp2, fill = count)) +
   coord_fixed()
 
 ggsave("matrix_comp.pdf", plot = p, width = 9, height = 9)
-cat("✅ Matrice pairwise (alignement blastn) générée avec succès.\n")
+cat("Matrice pairwise (alignement blastn) générée avec succès.\n")

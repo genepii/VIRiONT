@@ -28,7 +28,7 @@ process TRIM_CHOPPER {
 
     # Si le fichier est vide ou quasi-vide, on émet un warning sans faire crasher Nextflow (exit 0)
     if [ ! -s "${sample_id}_trimmed.fastq.gz" ] || [ \$(stat -c%s "${sample_id}_trimmed.fastq.gz") -lt 50 ]; then
-        echo "⚠️ WARNING : Aucun read conservé par Chopper pour ${sample_id}."
+        echo "WARNING : Aucun read conservé par Chopper pour ${sample_id}."
     fi
     """
 }

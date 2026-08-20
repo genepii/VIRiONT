@@ -31,7 +31,7 @@ workflow {
         )
     }
     if (!csv_file) {
-        error "❌ Aucun fichier CSV valide trouvé dans : ${params.fastq_dir}/"
+        error "Aucun fichier CSV valide trouvé dans : ${params.fastq_dir}/"
     }
     def csv_upper  = csv_file.name.toUpperCase()
     def virus_name = csv_upper.contains("VHD") ? "VHD" : "VHB"

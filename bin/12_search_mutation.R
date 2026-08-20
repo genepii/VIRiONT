@@ -310,4 +310,4 @@ if (!is.null(df_filtered)) {
   write_empty(file_output_FILTERED_CSV)
 }
 
-cat("✅ Screening Rscript terminé avec succès.\n")
+cat("Screening Rscript terminé avec succès.\n")

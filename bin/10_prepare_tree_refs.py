@@ -36,7 +36,7 @@ def main():
                 if m:
                     present_letters.add(m.group(1))
     except Exception as e:
-        print(f"⚠️ Erreur lecture {summary_tsv}: {e}")
+        print(f"Erreur lecture {summary_tsv}: {e}")
 
     print(f"Génotypes validés détectés dans ce run : {sorted(present_letters) if present_letters else 'aucun'}")
 
@@ -72,7 +72,7 @@ def main():
             selected.append(subgeno_dict[sg][0])
 
     SeqIO.write(selected, out_fasta, 'fasta')
-    print(f"\n✅ {len(selected)} séquences de référence sélectionnées pour l'arbre (sur {len(records)} disponibles).")
+    print(f"\n {len(selected)} séquences de référence sélectionnées pour l'arbre (sur {len(records)} disponibles).")
 
 
 if __name__ == "__main__":

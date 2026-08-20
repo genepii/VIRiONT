@@ -18,14 +18,14 @@ tree_file  <- as.character(argv[1])
 output_pdf <- as.character(argv[2])
 
 if (!file.exists(tree_file)) {
-  stop(paste("❌ Fichier arbre introuvable :", tree_file))
+  stop(paste("Fichier arbre introuvable :", tree_file))
 }
 
 # 1. Lecture de l'arbre au format Newick
 tree <- read.tree(tree_file)
 
 if (is.null(tree) || length(tree$tip.label) == 0) {
-  cat("⚠️ Fichier d'arbre vide ou illisible.\n")
+  cat("Fichier d'arbre vide ou illisible.\n")
   quit(save = "no", status = 0)
 }
 
@@ -44,7 +44,7 @@ tree <- tryCatch({
     root(tree, node = target_node, resolve.root = TRUE)
   }
 }, error = function(e) {
-  cat("⚠️ Avertissement lors de l'enracinement point médian, conservation de l'arbre brut.\n")
+  cat("Avertissement lors de l'enracinement point médian, conservation de l'arbre brut.\n")
   return(tree)
 })
 
@@ -59,7 +59,7 @@ dist_matrix <- cophenetic(tree)
 sample_indices <- which(is_sample)
 
 cat("=====================================================================\n")
-cat(" 🔍 DÉTECTION DES CONTAMINATIONS INTER-ÉCHANTILLONS (Distance = 0)\n")
+cat("   DÉTECTION DES CONTAMINATIONS INTER-ÉCHANTILLONS (Distance = 0)\n")
 cat("=====================================================================\n")
 
 contamination_found <- FALSE
@@ -73,7 +73,7 @@ if (length(sample_indices) > 1) {
       d    <- dist_matrix[idx1, idx2]
       
       if (d == 0) {
-        cat(sprintf("⚠️ ALERTE CONTAMINATION SUSPECTE : %s ET %s SONT 100%% IDENTIQUES !\n", s1, s2))
+        cat(sprintf("ALERTE CONTAMINATION SUSPECTE : %s ET %s SONT 100%% IDENTIQUES !\n", s1, s2))
         contamination_found <- TRUE
       }
     }
@@ -81,7 +81,7 @@ if (length(sample_indices) > 1) {
 }
 
 if (!contamination_found) {
-  cat("✅ Aucune identité à 100% (distance = 0) détectée entre les échantillons du run.\n")
+  cat("Aucune identité à 100% (distance = 0) détectée entre les échantillons du run.\n")
 }
 cat("=====================================================================\n")
 
@@ -126,4 +126,4 @@ legend(
 )
 
 dev.off()
-cat("✅ Arbre rectangulaire PDF généré avec succès :", output_pdf, "\n")
+cat("Arbre rectangulaire PDF généré avec succès :", output_pdf, "\n")

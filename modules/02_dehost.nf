@@ -34,7 +34,7 @@ process DEHOST_HOSTILE {
 
     # 1. Téléchargement automatique de l'index si absent du cache local
     if [ ! -d "\${CACHE_DIR}/\${INDEX_NAME}" ] && [ ! -f "\${CACHE_DIR}/\${INDEX_NAME}.mmi" ]; then
-        echo "📥 Index \${INDEX_NAME} absent du cache local. Téléchargement via proxy..."
+        echo " Index \${INDEX_NAME} absent du cache local. Téléchargement via proxy..."
         hostile index fetch --name "\${INDEX_NAME}" --aligner minimap2 || true
     fi
 

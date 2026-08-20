@@ -120,4 +120,4 @@ for (samplename in samples) {
 }
 
 dev.off()
-cat(paste0("📊 Rapport PDF généré avec succès : ", pdf_out, "\n"))
+cat(paste0("Rapport PDF généré avec succès : ", pdf_out, "\n"))

@@ -49,7 +49,7 @@ process AMPLICON_SORTER {
             -np ${task.cpus} < /dev/null
     "
     if [ ! -f "${sample_id}_results/consensusfile.fasta" ]; then
-        echo "⚠️ WARNING : amplicon_sorter n'a produit aucun pré-consensus pour ${sample_id}."
+        echo "WARNING : amplicon_sorter n'a produit aucun pré-consensus pour ${sample_id}."
     fi
     """
 }

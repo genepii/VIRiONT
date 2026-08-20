@@ -17,7 +17,7 @@ process COMPUTE_BAM_COVERAGE {
     if [ -f "${bam}" ] && [ -s "${bam}" ]; then
         bedtools genomecov -ibam "${bam}" -d -split | sed "s/\$/\t${sample_id}\t${genotype}\tMINION/" > "${sample_id}_${genotype}.cov"
     else
-        echo "⚠️ WARNING: BAM vide ou inexistant pour ${sample_id} - ${genotype}"
+        echo "WARNING: BAM vide ou inexistant pour ${sample_id} - ${genotype}"
         touch "${sample_id}_${genotype}.cov"
     fi
     """
@@ -37,7 +37,7 @@ process PLOT_GLOBAL_COVERAGE {
     if [ -s "cov_sum.cov" ]; then
         Rscript ${projectDir}/bin/11_plot_cov_MI.R cov_sum.cov VIRiONT_coverage_profiles.pdf || true
     else
-        echo "⚠️ WARNING: Aucun profil de couverture à tracer."
+        echo "WARNING: Aucun profil de couverture à tracer."
     fi
     """
 }
