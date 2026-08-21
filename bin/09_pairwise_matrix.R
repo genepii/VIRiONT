@@ -39,9 +39,7 @@ write_fasta <- function(id, seq, path) writeLines(c(paste0(">", id), seq), path)
 # Calcule le nombre de mismatches RÉELS entre 2 séquences via alignement local
 # blastn (gère nativement indels/décalages), en sommant tous les HSPs (au cas où
 # un grand gap interne — consensus partiel — sépare l'alignement en plusieurs blocs,
-# cf. artefact déjà rencontré dans le clustering amplicon_sorter).
-# Remplace l'ancienne comparaison position-par-position sans alignement, qui
-# produisait des milliers de faux mismatches en cascade dès le premier indel.
+
 blast_mismatches <- function(seq1, seq2) {
   q_path <- file.path(tmpdir, "q.fasta")
   s_path <- file.path(tmpdir, "s.fasta")
