@@ -60,8 +60,7 @@ process COLLECT_MUTATION_REPORTS {
 
     script:
     """
-    echo "=== Consolidation globale du rapport de mutations ==="
-
+    echo "=== Consolidation globale du rapport de mutations VHB ==="
     first=1
     for f in ${variant_csvs}; do
         if [ -s "\$f" ]; then

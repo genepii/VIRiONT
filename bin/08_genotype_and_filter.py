@@ -4,6 +4,7 @@ import os
 import glob
 import re
 import subprocess
+import tempfile
 import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -19,6 +20,89 @@ def load_ref_lengths(ref_fasta_path):
         for rec in SeqIO.parse(ref_fasta_path, "fasta"):
             ref_lengths[rec.id] = len(rec.seq)
     return ref_lengths
+
+
+def orient_sequence_to_reference(seq_str, blast_db):
+    """Vérifie l'orientation d'une séquence par rapport à la référence via blastn
+    et la réoriente (reverse-complement) si elle est majoritairement sur le brin
+    moins. Corrige les consensus chimériques auto-inversés (une portion de la
+    séquence sur le brin plus, une autre sur le brin moins, collées bout à bout
+    par le clustering en amont) en comparant la longueur totale alignée sur
+    chaque orientation plutôt qu'un seul HSP isolé."""
+    if not seq_str:
+        return seq_str, False
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False) as qf:
+        qf.write(f">q\n{seq_str}\n")
+        q_path = qf.name
+    try:
+        cmd = [
+            "blastn", "-query", q_path, "-db", blast_db,
+            "-outfmt", "6 length sstart send",
+            "-max_target_seqs", "1"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+        if not lines:
+            return seq_str, False
+        plus_len, minus_len = 0, 0
+        for line in lines:
+            parts = line.split("\t")
+            aln_len = int(parts[0])
+            sstart, send = int(parts[1]), int(parts[2])
+            if sstart <= send:
+                plus_len += aln_len
+            else:
+                minus_len += aln_len
+        if minus_len > plus_len:
+            return reverse_complement(seq_str), True
+        return seq_str, False
+    except Exception as e:
+        print(f"⚠️ Erreur orientation blastn: {e}")
+        return seq_str, False
+    finally:
+        os.remove(q_path)
+
+
+def detect_chimeric_orientation(seq_str, blast_db, min_minor_fraction=0.15):
+    """Détecte si une séquence est chimérique auto-inversée : une portion
+    significative de sa longueur s'aligne sur le brin plus et une autre portion
+    significative sur le brin moins (au lieu d'une orientation homogène après
+    correction par orient_sequence_to_reference). Retourne True si le run
+    doit signaler ce cluster comme suspect dans le TSV, pour traçabilité
+    clinique — sans bloquer le pipeline, mais en gardant une trace explicite."""
+    if not seq_str:
+        return False
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False) as qf:
+        qf.write(f">q\n{seq_str}\n")
+        q_path = qf.name
+    try:
+        cmd = [
+            "blastn", "-query", q_path, "-db", blast_db,
+            "-outfmt", "6 length sstart send",
+            "-max_target_seqs", "1"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+        if not lines:
+            return False
+        plus_len, minus_len = 0, 0
+        for line in lines:
+            parts = line.split("\t")
+            aln_len = int(parts[0])
+            sstart, send = int(parts[1]), int(parts[2])
+            if sstart <= send:
+                plus_len += aln_len
+            else:
+                minus_len += aln_len
+        total = plus_len + minus_len
+        if total == 0:
+            return False
+        minor_fraction = min(plus_len, minus_len) / total
+        return minor_fraction >= min_minor_fraction
+    except Exception:
+        return False
+    finally:
+        os.remove(q_path)
 
 
 def main():
@@ -37,7 +121,6 @@ def main():
     summary_rows = []
     validated_records = []
     manifest_rows = []
-
     fasta_files = sorted(glob.glob(os.path.join(consensus_dir, "*.fasta")))
 
     for f_path in fasta_files:
@@ -96,17 +179,12 @@ def main():
         records = list(SeqIO.parse(f_path, "fasta"))
         raw_clusters = []
         for idx, rec in enumerate(records):
-            # Si aucun hit BLAST n'existe pour cette séquence, on l'exclut directement
             if rec.id not in blast_hits:
                 continue
-
             hit = blast_hits[rec.id]
             geno = hit["genotype"]
-
-            # Exclusion des Unknown ou No_Match
             if geno.upper() in ["UNKNOWN", "NO_MATCH", "NONE", ""]:
                 continue
-
             c_name = rec.id
             reads = 0
             if c_name in reads_dict:
@@ -124,9 +202,7 @@ def main():
                 reads = list(reads_dict.values())[idx]
             if reads == 0:
                 reads = 1
-
             strand = "minus" if hit["sstart"] > hit["send"] else "plus"
-
             raw_clusters.append({
                 "record": rec,
                 "reads": reads,
@@ -139,6 +215,23 @@ def main():
 
         if not raw_clusters:
             continue
+
+        # 3bis. RÉORIENTATION SYSTÉMATIQUE de chaque cluster brut avant fusion.
+        # Corrige les consensus chimériques auto-inversés (une moitié sur le
+        # brin plus, l'autre sur le brin moins) qui, une fois fusionnés sans
+        # contrôle d'orientation, produisent une séquence incohérente rejetée
+        # par MAFFT lors de l'alignement phylogénétique (cf. barcodes avec
+        # anormalement beaucoup de clusters fusionnés : 16-21 au lieu de 4-9).
+        for c in raw_clusters:
+            oriented_seq, was_flipped = orient_sequence_to_reference(str(c["record"].seq), blast_db)
+            if was_flipped:
+                c["record"].seq = Seq(oriented_seq)
+                c["strand"] = "plus"  # la séquence est désormais alignée dans le sens de référence
+                print(f"⚠️ {sample_id} / {c['cluster_label']} : réorienté (brin inversé détecté avant fusion)")
+            is_chimeric = detect_chimeric_orientation(oriented_seq, blast_db)
+            c["chimeric_suspect"] = is_chimeric
+            if is_chimeric:
+                print(f"⚠️ {sample_id} / {c['cluster_label']} : signalé comme possible chimère (portions dans les deux orientations)")
 
         # 4. AGRÉGATION PAR GÉNOTYPE
         genotype_groups = {}
@@ -156,6 +249,7 @@ def main():
                 best_member = max(members, key=lambda x: x["length_seq"])
             weighted_pident = sum(m["pident"] * m["reads"] for m in members) / total_reads
             merged_clusters = ",".join(m["cluster_label"] for m in members)
+            any_chimeric = any(m.get("chimeric_suspect", False) for m in members)
             aggregated_genotypes.append({
                 "genotype": geno,
                 "record": best_member["record"],
@@ -165,7 +259,8 @@ def main():
                 "strand": best_member["strand"],
                 "cluster_label": "c1" if len(members) == 1 else f"merged({merged_clusters})",
                 "is_merged": len(members) > 1,
-                "merged_from": merged_clusters
+                "merged_from": merged_clusters,
+                "chimeric_suspect": any_chimeric
             })
 
         # 5. Calcul des ratios cliniques
@@ -173,7 +268,11 @@ def main():
         for g in aggregated_genotypes:
             ratio = (g["reads"] / max_reads) * 100.0
             status = "VALIDATED" if (g["pident"] >= 70.0 and ratio >= cutoff) else "REJECTED"
-
+            note_parts = []
+            if g["is_merged"]:
+                note_parts.append(f"Regroupement de {g['merged_from']}")
+            if g["chimeric_suspect"]:
+                note_parts.append("⚠️ SUSPECT: portions bi-orientées détectées avant fusion")
             summary_rows.append({
                 "sample": sample_id,
                 "genotype": g["genotype"],
@@ -185,9 +284,8 @@ def main():
                 "length": g["length_seq"],
                 "strand": g["strand"],
                 "status": status,
-                "merge_note": f"Regroupement de {g['merged_from']}" if g["is_merged"] else ""
+                "merge_note": " | ".join(note_parts)
             })
-
             if status == "VALIDATED":
                 final_seq = reverse_complement(str(g["record"].seq)) if g["strand"] == "minus" else str(g["record"].seq)
                 final_id = f"{sample_id}_Geno_{g['genotype']}"

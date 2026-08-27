@@ -1,5 +1,6 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl=2
+
 /*
 ========================================================================================
     VIRiONT_NF - PIPELINE COMPLET (FIL CONDUCTEUR CLINIQUE UNIFIÉ)
@@ -48,12 +49,17 @@ workflow {
         min_length = 800
         max_length = 5000
     }
+    
+    // Base de données pour le BLAST de génotypage & phylogénie
     def target_ref_file = null
     if (virus_name == "VHD") {
         target_ref_file = (tech_name == "R0") ? file("${projectDir}/ref/HDV_subtype_R0.fasta") : file("${projectDir}/ref/HDV_subtype_WG.fasta")
     } else {
         target_ref_file = (tech_name == "POL") ? file("${projectDir}/ref/HBV_subtype_POL.fasta") : file("${projectDir}/ref/HBV_subtype_WG.fasta")
     }
+
+    // Référence canonique HBV standardisée avec amorces (pour alignement mutations & Clair3)
+    def hbv_primer_ref = file("${projectDir}/ref/HBV_genotype_wPrimer.fasta")
 
     GENERATE_RUN_METADATA(fastq_path, target_ref_file, min_length, max_length)
 
@@ -104,9 +110,7 @@ workflow {
         MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, fasta -> fasta }.collect()
     )
 
-    // 03. Alignement BAM "brut" (multi-clusters) — sert UNIQUEMENT à compter les reads
-    //     réels par cluster pour alimenter la décision VALIDATED/REJECTED de GENOTYPING.
-    //     N'est PLUS utilisé pour le VCF ni la couverture finale (voir phase 06b/07/11).
+    // 03. Alignement BAM multi-clusters pour comptage exhaustif
     valid_trimmed_ch
         .join(MEDAKA_CONSENSUS.out.final_consensus)
         .set { bam_input_ch }
@@ -124,6 +128,7 @@ workflow {
         }
         .collect()
         .set { all_sorter_csvs_ch }
+
     GENOTYPING(
         MEDAKA_CONSENSUS.out.final_consensus.map { id, f -> f }.collect(),
         target_ref_file,
@@ -131,10 +136,8 @@ workflow {
     )
 
     // =====================================================================================
-    // 05. RÉALIGNEMENT SPÉCIFIQUE PAR GÉNOTYPE VALIDÉ (co-infection-safe)
+    // 05. RÉALIGNEMENT CONTRE RÉFÉRENCE CANONIQUE POUR VARIANT CALLING ET COUVERTURE
     // =====================================================================================
-    // Le manifest donne la correspondance exacte sample_id/genotype/fichier fasta,
-    // produite par GENOTYPING — pas de parsing fragile de nom de fichier.
     GENOTYPING.out.genotyped_fastas
         .flatten()
         .map { f -> tuple(f.name, f) }
@@ -147,17 +150,17 @@ workflow {
         .map { filename, sample_id, genotype, fasta -> tuple(sample_id, genotype, fasta) }
         .set { genotype_ref_ch }
 
-    // Associe chaque (sample_id, genotype) au fichier trimmed COMPLET du barcode
-    // (un même sample_id peut apparaître plusieurs fois si co-infection — chaque
-    // génotype réutilise les mêmes reads complets, réalignés individuellement).
     genotype_ref_ch
         .combine(valid_trimmed_ch, by: 0)
         .map { sample_id, genotype, fasta, trimmed_fastq -> tuple(sample_id, genotype, trimmed_fastq, fasta) }
         .set { genotype_align_input_ch }
 
-    ALIGN_GENOTYPE_BAM(genotype_align_input_ch)
+    ALIGN_GENOTYPE_BAM(
+        genotype_align_input_ch,
+        hbv_primer_ref
+    )
 
-    // 06. Variant Calling Clair3 — un VCF strictement par génotype validé
+    // 06. Variant Calling Clair3 sur coordonnées canoniques
     CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
 
     // =====================================================================================
@@ -166,9 +169,12 @@ workflow {
     MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
     DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
     TRIM_CHOPPER.out.trimmed_fastq.map { id, fq -> fq }.collect().set { all_trimmed }
-    ALIGN_BAM.out.bam_bai.map { id, bam, bai -> bam }.collect().set { all_bams }
-    ALIGN_BAM.out.bam_bai.map { id, bam, bai -> bai }.collect().set { all_bais }
+    
+    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().set { all_bams }
+    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().set { all_bais }
+    
     CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> vcf }.collect().set { all_vcfs }
+
     QC_ANALYSIS(
         all_raw,
         all_dehosted,
@@ -183,7 +189,7 @@ workflow {
     )
 
     // =====================================================================================
-    // 08. PHYLOGÉNIE (squelette de références + génotypes présents en entier)
+    // 08. PHYLOGÉNIE
     // =====================================================================================
     PREPARE_TREE_REFS(
         target_ref_file,
@@ -195,22 +201,25 @@ workflow {
     )
 
     // =====================================================================================
-    // 09. COUVERTURE GÉNOMIQUE — désormais un facet EXACTEMENT par génotype validé
+    // 09. COUVERTURE GÉNOMIQUE
     // =====================================================================================
     COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.bam_bai)
     PLOT_GLOBAL_COVERAGE(
         COMPUTE_BAM_COVERAGE.out.sample_cov.collect()
     )
 
+// =====================================================================================
+    // 10. SCREENING DES MUTATIONS (Exécuté uniquement pour VHB)
     // =====================================================================================
-    // 10. SCREENING DES MUTATIONS — VCF déjà spécifique au génotype, plus de join fragile
-    // =====================================================================================
-    SEARCH_HBV_MUTATIONS(
-        CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
-        virus_name,
-        file(params.mutation_tables ?: "${projectDir}/mutation_table")
-    )
-    COLLECT_MUTATION_REPORTS(
-        SEARCH_HBV_MUTATIONS.out.sample_variants.collect()
-    )
+    if (virus_name == "VHB") {
+        SEARCH_HBV_MUTATIONS(
+            CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
+            virus_name,
+            file(params.mutation_tables ?: "${projectDir}/mutation_table")
+        )
+
+        COLLECT_MUTATION_REPORTS(
+            SEARCH_HBV_MUTATIONS.out.sample_variants.collect()
+        )
+    }
 }

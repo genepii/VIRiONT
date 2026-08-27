@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 # ==============================================================================
-# SCRIPT QC ANALYSIS (BASE R UNISSANT PERFORMANCES ET COMPATIBILITÉ)
+# SCRIPT QC ANALYSIS (CALCUL DE PROFONDEUR BASÉ SUR LE CONSENSUS VALIDÉ)
 # ==============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -14,7 +14,7 @@ summary_tsv_file <- args[1]
 min_len_param    <- as.numeric(args[2])
 max_len_param    <- as.numeric(args[3])
 
-# Fonction pour extraire les longueurs réelles depuis un FASTQ (via AWK)
+# Extraction des longueurs réelles des reads depuis un FASTQ (via AWK)
 get_fastq_lengths <- function(fq_path) {
   if (!file.exists(fq_path) || file.size(fq_path) == 0) return(numeric(0))
   cmd <- paste0("zcat -f '", fq_path, "' | awk 'NR%4==2 {print length($0)}'")
@@ -22,14 +22,14 @@ get_fastq_lengths <- function(fq_path) {
   return(lens[!is.na(lens)])
 }
 
-# Lecture du résumé de génotypage
+# 1. Lecture du résumé de génotypage issu de 08_genotyping
 summary_dt <- if (file.exists(summary_tsv_file)) {
   read.delim(summary_tsv_file, stringsAsFactors = FALSE)
 } else {
   data.frame()
 }
 
-# Récupération exclusive des échantillons ayant généré un consensus VALIDE
+# Récupération exclusive des échantillons validés
 valid_samples <- c()
 if (nrow(summary_dt) > 0 && "status" %in% colnames(summary_dt)) {
   valid_samples <- unique(summary_dt$sample[tolower(summary_dt$status) == "validated"])
@@ -37,14 +37,14 @@ if (nrow(summary_dt) > 0 && "status" %in% colnames(summary_dt)) {
 
 qc_list <- list()
 
-# Détection de tous les échantillons bruts fusionnés
+# Détection de tous les fichiers FASTQ bruts fusionnés
 raw_files <- list.files(".", pattern = ".*_merged\\.fastq(\\.gz)?", full.names = TRUE)
 
 for (rf in raw_files) {
   sid <- gsub("_merged\\.fastq(\\.gz)?", "", basename(rf))
   sid <- gsub("^\\./", "", sid)
 
-  # FILTRE STRICT : Seuls les échantillons validés au génotypage sont traités
+  # FILTRE : Seuls les échantillons validés au génotypage sont inclus
   if (!(sid %in% valid_samples)) {
     next
   }
@@ -97,52 +97,54 @@ for (rf in raw_files) {
 
   # 4. STEP 05_GENOTYPING
   sample_summary <- summary_dt[summary_dt$sample == sid & tolower(summary_dt$status) == "validated", ]
-
-  # Couverture moyenne via Mosdepth
-  mosdepth_summary <- list.files(".", pattern = paste0("^", sid, ".*\\.mosdepth\\.summary\\.txt$"), full.names = TRUE)[1]
-  mean_cov <- "NA"
-  if (!is.na(mosdepth_summary) && file.exists(mosdepth_summary)) {
-    ms_data <- read.delim(mosdepth_summary, stringsAsFactors = FALSE)
-    total_row <- ms_data[ms_data$chrom == "total", ]
-    if (nrow(total_row) > 0) {
-      mean_cov <- round(as.numeric(total_row$mean[1]), 2)
-    }
-  }
-
-  # Nombre de variants réels Clair3
-  vcf_file <- list.files(".", pattern = paste0("^", sid, ".*\\.vcf(\\.gz)?$"), full.names = TRUE)[1]
-  n_var <- "NA"
-  if (!is.na(vcf_file) && file.exists(vcf_file)) {
-    vcf_cmd <- paste0("bcftools view -H '", vcf_file, "' | wc -l")
-    n_var <- trimws(system(vcf_cmd, intern = TRUE))
-  }
-
-  # Longueurs mesurées réelles des reads conservés
-  real_mean_len <- if (length(lens_tr) > 0) round(mean(lens_tr), 1) else "NA"
-  real_med_len  <- if (length(lens_tr) > 0) as.character(round(median(lens_tr), 1)) else "NA"
+  
+  mean_read_len_num <- if (length(lens_tr) > 0) mean(lens_tr) else NA
+  real_mean_len_str <- if (!is.na(mean_read_len_num)) round(mean_read_len_num, 1) else "NA"
+  real_med_len_str  <- if (length(lens_tr) > 0) as.character(round(median(lens_tr), 1)) else "NA"
 
   if (nrow(sample_summary) > 0) {
     for (i in 1:nrow(sample_summary)) {
+      geno          <- as.character(sample_summary$genotype[i])
+      reads_geno    <- as.numeric(sample_summary$total_reads[i])
+      consensus_len <- as.numeric(sample_summary$length[i])  # <-- TAILLE EXACTE DU GÉNOTE DU TABLEAU
+      
+      # Calcul de la profondeur réelle basée sur la taille du génome validé
+      mean_cov_val <- "NA"
+      if (!is.na(consensus_len) && consensus_len > 0 && !is.na(reads_geno) && !is.na(mean_read_len_num)) {
+        mean_cov_val <- round((reads_geno * mean_read_len_num) / consensus_len, 2)
+      }
+
+      # Comptage des variants Clair3
+      vcf_file <- list.files(".", pattern = paste0("^", sid, ".*", geno, ".*\\.vcf(\\.gz)?$"), full.names = TRUE)[1]
+      if (is.na(vcf_file)) {
+        vcf_file <- list.files(".", pattern = paste0("^", sid, ".*\\.vcf(\\.gz)?$"), full.names = TRUE)[1]
+      }
+      n_var <- "NA"
+      if (!is.na(vcf_file) && file.exists(vcf_file)) {
+        vcf_cmd <- paste0("bcftools view -H '", vcf_file, "' 2>/dev/null | wc -l")
+        n_var <- trimws(system(vcf_cmd, intern = TRUE))
+      }
+
       qc_list[[length(qc_list) + 1]] <- data.frame(
         sample = sid,
         step = "05_GENOTYPING",
-        assignedref = as.character(sample_summary$genotype[i]),
-        read_count = as.numeric(sample_summary$total_reads[i]),
+        assignedref = geno,
+        read_count = reads_geno,
         minlengthread = min_len_param,
         maxlengthread = max_len_param,
-        meanread_length = real_mean_len,
-        medianread_length = real_med_len,
+        meanread_length = real_mean_len_str,
+        medianread_length = real_med_len_str,
         pident_blast = round(as.numeric(sample_summary$pident[i]), 3),
-        mean_depth_coverage = mean_cov,
+        mean_depth_coverage = mean_cov_val,
         clair3_variants = n_var,
-        assigned_reads = as.numeric(sample_summary$total_reads[i]),
+        assigned_reads = reads_geno,
         stringsAsFactors = FALSE
       )
     }
   }
 }
 
-# Assemblage et sauvegarde
+# Export de la table récapitulative
 output_file <- "RUN_METRICS_SUMMARY_TABLE.tsv"
 qc_columns <- c(
   "sample", "step", "assignedref", "read_count", "minlengthread",
@@ -153,7 +155,6 @@ qc_columns <- c(
 if (length(qc_list) > 0) {
   final_df <- do.call(rbind, qc_list)
 } else {
-  cat("Aucun échantillon valide à exporter dans le QC. Création d'une table vide avec en-têtes.\n")
   final_df <- data.frame(matrix(ncol = length(qc_columns), nrow = 0))
   colnames(final_df) <- qc_columns
 }
