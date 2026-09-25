@@ -11,9 +11,12 @@ process GENERATE_RUN_METADATA {
 
     input:
     path fastq_dir
-    path target_ref
+    val ref_db_name
+    val canonical_name
     val min_len
     val max_len
+    val virus_name
+    val tech_name
 
     output:
     path "fastq_content.txt", emit: fastq_log
@@ -23,12 +26,8 @@ process GENERATE_RUN_METADATA {
     """
     #!/usr/bin/env bash
 
-    # ==========================================
-    # 1. RECUPERATION DU CSV POUR CORRESPONDANCE
-    # ==========================================
     CSV_FILE=\$(find -L "${fastq_dir}" -maxdepth 1 -type f -name "*.csv" | head -n 1)
 
-    # Déclaration des variables de résultat
     VALID_BARCODES=""
     NON_FASTQ_BARCODES=""
     EMPTY_BARCODES=""
@@ -37,16 +36,13 @@ process GENERATE_RUN_METADATA {
     for dir in \$(find -L "${fastq_dir}" -maxdepth 1 -mindepth 1 -type d | sort); do
         bname=\$(basename "\$dir")
         
-        # Ignorer les dossiers hors barcodes
         if [[ ! "\$bname" =~ barcode[0-9]+ ]]; then
             continue
         fi
 
-        # Extraction du numéro de barcode pour rechercher dans le CSV
         num_barcode=\$(echo "\$bname" | grep -oE '[0-9]+' | sed 's/^0*//')
         formatted_num=\$(printf "%02d" "\$num_barcode")
 
-        # Recherche du nom complet de l'échantillon dans le CSV s'il existe
         full_sample_name="barcode_\${formatted_num}"
         if [ -f "\$CSV_FILE" ]; then
             sample_match=\$(awk -F'[;,]' -v b="\${num_barcode}" -v fb="\${formatted_num}" '
@@ -65,7 +61,6 @@ process GENERATE_RUN_METADATA {
             fi
         fi
 
-        # Vérification des fichiers et de la volumétrie
         all_files_count=\$(find "\$dir" -maxdepth 1 -type f | wc -l)
         fastq_count=\$(find "\$dir" -maxdepth 1 -type f \\( -name "*.fastq" -o -name "*.fastq.gz" -o -name "*.fq" -o -name "*.fq.gz" \\) | wc -l)
         dir_size_kb=\$(du -sk "\$dir" | awk '{print \$1}')
@@ -77,8 +72,6 @@ process GENERATE_RUN_METADATA {
                 EMPTY_BARCODES="\${EMPTY_BARCODES}\${full_sample_name} (volumétrie négligeable : \${dir_size_kb} Ko)\\n"
             else
                 VALID_BARCODES="\${VALID_BARCODES}\${full_sample_name}\\n"
-                
-                # Vérification de l'intégrité gzip
                 for gz in \$(find "\$dir" -maxdepth 1 -type f -name "*.gz"); do
                     if ! gzip -t "\$gz" 2>/dev/null; then
                         CORRUPTED_FILES="\${CORRUPTED_FILES}\${gz}\\n"
@@ -90,7 +83,6 @@ process GENERATE_RUN_METADATA {
         fi
     done
 
-    # Génération du fichier fastq_content.txt
     cat << EOF > fastq_content.txt
 ##########################
 ##### FASTQ ANALYSIS #####
@@ -111,16 +103,16 @@ empty barcode repositories and ignored for analysis:
 \$(echo -e "\$EMPTY_BARCODES" | sed '/^\$/d')
 EOF
 
-    # ==========================================
-    # 2. GENERATION DE PARAM_FILE.TXT
-    # ==========================================
     cat << EOF > param_file.txt
 ######################
 #### PARAMS USED #####
 ######################
+Target / Mode                           : ${virus_name} (${tech_name})
 Data repository                         : ${params.fastq_dir}/
 Result repository                       : ${params.outdir}/
-Reference database used                 : ${target_ref.name}
+Reference DB (Genotyping)               : ${ref_db_name}
+Canonical alignment reference           : ${canonical_name}
+Mutation tables repository              : ${file(params.mutation_tables ?: "${projectDir}/mutation_table").name}/
 Read minlength                          : ${min_len} bp
 Read maxlength                          : ${max_len} bp
 Quality filtering (Q-score)             : 12

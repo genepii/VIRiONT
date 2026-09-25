@@ -6,12 +6,9 @@ Stage: condabuild
 VIRiONT2_main.yml /VIRiONT2_main.yml
 
 %post
-# 1. Création de l'environnement Conda
+# 1. Création de l'environnement Conda d'origine
 /opt/conda/bin/conda env create -f /VIRiONT2_main.yml
-
-# 2. Installation de l'outil amplicon_sorter
-mkdir -p /opt/amplicon_sorter
-/usr/bin/wget -q https://raw.githubusercontent.com/avierstr/amplicon_sorter/master/amplicon_sorter.py -O /opt/amplicon_sorter/amplicon_sorter.py
+/opt/conda/bin/conda clean -afy
 
 Bootstrap: docker
 From: rockylinux:8
@@ -19,33 +16,78 @@ Stage: V1
 
 %files from condabuild
 /opt/conda/envs/VIRiONT2_main /opt/conda/envs/VIRiONT2_main
-/opt/amplicon_sorter /opt/amplicon_sorter
 
 %environment
 export PATH=/opt/conda/envs/VIRiONT2_main/bin:$PATH
+export JPHMM_PRIORS=/opt/jphmm/priors
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
 %post
-# Installation des dépendances système nécessaires à Rocky 8
-dnf update -y
+# 1. Dépendances système d'origine (compilateurs C/C++ et utilitaires de base)
 dnf install -y epel-release
 dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
 dnf groupinstall -y "Development Tools"
-dnf install -y wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
+dnf install -y which gcc gcc-c++ make wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
 
-# Configuration d'Amplicon_sorter
-sed -i 's/\r$//' /opt/amplicon_sorter/amplicon_sorter.py
-chmod +x /opt/amplicon_sorter/amplicon_sorter.py
-ln -s /opt/amplicon_sorter/amplicon_sorter.py /opt/conda/envs/VIRiONT2_main/bin/amplicon_sorter.py
+# 2. Téléchargement, compilation et installation dynamique de jpHMM
+mkdir -p /opt/jphmm /tmp/jphmm_build
+cd /tmp/jphmm_build
+wget -q http://jphmm.gobics.de/jpHMM.tar.gz || curl -sO http://jphmm.gobics.de/jpHMM.tar.gz
+
+if [ -f "jpHMM.tar.gz" ]; then
+    tar -xzf jpHMM.tar.gz
+
+    # Repérer le répertoire contenant le Makefile ou les sources C/C++
+    SRC_DIR=$(find . -type f \( -name "Makefile" -o -name "*.cpp" -o -name "*.c" \) -exec dirname {} \; | head -n 1)
+
+    if [ -n "$SRC_DIR" ]; then
+        cd "$SRC_DIR"
+        make clean || true
+        make || g++ -O3 -o jpHMM *.cpp -lm || gcc -O3 -o jpHMM *.c -lm
+        cd /tmp/jphmm_build
+    fi
+
+    # Recherche du binaire compilé ou préexistant
+    BIN_PATH=$(find . -type f -name "jpHMM" -perm -111 | head -n 1)
+    if [ -n "$BIN_PATH" ]; then
+        cp "$BIN_PATH" /opt/conda/envs/VIRiONT2_main/bin/jpHMM
+        chmod +x /opt/conda/envs/VIRiONT2_main/bin/jpHMM
+        ln -sf /opt/conda/envs/VIRiONT2_main/bin/jpHMM /opt/conda/envs/VIRiONT2_main/bin/jphmm
+    else
+        echo "ERREUR: Impossible de compiler ou trouver le binaire jpHMM"
+        exit 1
+    fi
+
+    # Déploiement des répertoires de données (priors et input)
+    PRIORS_SRC=$(find /tmp/jphmm_build -type d -name "priors" | head -n 1)
+    if [ -n "$PRIORS_SRC" ]; then
+        cp -r "$PRIORS_SRC" /opt/jphmm/priors
+    fi
+
+    INPUT_SRC=$(find /tmp/jphmm_build -type d -name "input" | head -n 1)
+    if [ -n "$INPUT_SRC" ]; then
+        cp -r "$INPUT_SRC" /opt/jphmm/input
+    fi
+
+    cd /
+    rm -rf /tmp/jphmm_build
+else
+    echo "ERREUR: Échec du téléchargement de jpHMM.tar.gz"
+    exit 1
+fi
+
+# 3. Nettoyage des caches système
+dnf clean all
+rm -rf /var/cache/dnf
 
 %help
     SUMMARY
     Conteneur de production pour le pipeline VIRiONT-Nextflow.
-    Inclut Medaka, Spoa, Miniasm pour le consensus robuste.
+    Inclut Medaka, Spoa, Miniasm, R, Blast, minimap2 et jpHMM (HBV circulaire).
     Basé sur Rocky Linux 8.
 
 %labels
-    Version 2.1.0
+    Version 2.2.0
     Author SoufianeAlami
-    Date 2026-08-10
+    Date 2026-09-23

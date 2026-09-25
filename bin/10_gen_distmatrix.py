@@ -106,29 +106,33 @@ font_size = max(9, min(15, int(130 / n)))
 
 fig, ax = plt.subplots(figsize=(figsize, figsize))
 
-# 1. Tracé de la heatmap SANS annot seaborn (pour éviter le bug des NaN)
+# 1. Tracé avec palette inversée : forte ressemblance (< divergence) = ROUGE
 sns.heatmap(
     matrice,
     annot=False,
     linewidths=1.0,
     linecolor="white",
     square=True,
-    cmap="YlOrRd",
+    cmap="YlOrRd_r",
     cbar=True,
-    cbar_kws={'label': '% Divergence', 'shrink': 0.8},
+    cbar_kws={'label': '% Divergence (Rouge = Forte identité)', 'shrink': 0.8},
     ax=ax
 )
 
 # Fond gris clair pour les NaN
 ax.collections[0].cmap.set_bad('#e8e8e8')
 
-# 2. Écriture manuelle et forcée du texte dans chaque case calculée
+# Calcul du seuil dynamique pour adapter la lisibilité du texte
+valid_vals = matrix[~np.isnan(matrix)]
+threshold_val = np.percentile(valid_vals, 35) if len(valid_vals) > 0 else 2.0
+
+# 2. Écriture manuelle du texte dans chaque case
 for row_idx in range(n):
     for col_idx in range(n):
         val = matrix[row_idx, col_idx]
         if not np.isnan(val):
-            # Couleur du texte : blanc sur fond très rouge (> 5%), noir sinon
-            text_color = "white" if val > 5.0 else "black"
+            # Blanc sur les cases rouges (forte identité), noir sur les cases jaunes/claires
+            text_color = "white" if val <= threshold_val else "black"
             ax.text(
                 col_idx + 0.5,
                 row_idx + 0.5,

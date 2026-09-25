@@ -1,17 +1,30 @@
-results/
-results_250318_OK/
-results_260401_ok/
-results_260414_OK/
-results_260609_new/
-results_260609_old/
-fastq_pass/
-ref_hostile/
-tmp/
-.nextflow/
-*.sif
-*.mmi
-*.gz
-*.bam
-work/
+cat << 'EOF' > .gitignore
+# Nextflow & execution
 .nextflow/
 .nextflow.log*
+work/
+nxf_work/
+
+# Sorties & resultats
+results/
+results_nextflow/
+kraken2_*/
+
+# Donnees brutes & references
+fastq_pass/
+ref_hostile/
+singularity/
+
+# Gros formats (bioinfo / containers)
+*.sif
+*.mmi
+*.bam
+*.bai
+*.sam
+*.fastq
+*.fastq.gz
+*.fq.gz
+*.gz
+*.kraken
+*_output.txt
+EOF

@@ -21,7 +21,7 @@ process MERGE_FASTQ {
     echo "=== Traitement de ${sample_id} dans : ${input_dir} ==="
 
     if [ ! -d "${input_dir}" ]; then
-        echo "ℹ️ DOSSIER ABSENT : ${input_dir} n'existe pas. Échantillon/témoin ignoré."
+        echo "DOSSIER ABSENT : ${input_dir} n'existe pas. Échantillon/témoin ignoré."
         exit 0
     fi
 
@@ -40,13 +40,13 @@ process MERGE_FASTQ {
             find -L "${input_dir}" -maxdepth 1 -type f -name "*.gz" -exec gzip -dc {} +
         } | gzip -c > ${sample_id}_merged.fastq.gz
     else
-        echo "ℹ️ TÉMOIN NÉGATIF / DOSSIER VIDE : Aucun fichier FASTQ dans ${input_dir}. Poursuite du pipeline."
+        echo "TÉMOIN NÉGATIF / DOSSIER VIDE : Aucun fichier FASTQ dans ${input_dir}. Poursuite du pipeline."
         exit 0
     fi
 
     file_size=\$(stat -c%s "${sample_id}_merged.fastq.gz" 2>/dev/null || stat -f%z "${sample_id}_merged.fastq.gz")
     if [ "\$file_size" -lt 1000 ]; then
-        echo "ℹ️ VOLUMÉTRIE INSUFFISANTE : Le fichier fait \${file_size} octets. Échantillon/témoin ignoré."
+        echo "VOLUMÉTRIE INSUFFISANTE : Le fichier fait \${file_size} octets. Échantillon/témoin ignoré."
         rm -f ${sample_id}_merged.fastq.gz
         exit 0
     fi

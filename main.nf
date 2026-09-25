@@ -3,66 +3,107 @@ nextflow.enable.dsl=2
 
 /*
 ========================================================================================
-    VIRiONT_NF - PIPELINE COMPLET (FIL CONDUCTEUR CLINIQUE UNIFIÉ)
+    VIRiONT_NF - PIPELINE COMPLET (VHB WG/POL & VHD WG/R0)
 ========================================================================================
 */
 include { GENERATE_RUN_METADATA                          } from './modules/00_init_logs.nf'
 include { MERGE_FASTQ                                    } from './modules/01_merge.nf'
 include { DEHOST_HOSTILE                                 } from './modules/02_dehost.nf'
 include { TRIM_CHOPPER                                   } from './modules/03_chopper.nf'
-include { AMPLICON_SORTER                                } from './modules/04_amplicon_sorter.nf'
+include { COMPETITIVE_ALIGN                              } from './modules/04_competitive_align.nf'
 include { MEDAKA_CONSENSUS; COLLECT_CONSENSUS            } from './modules/05_consensus.nf'
-include { ALIGN_BAM; COUNT_REAL_READS                    } from './modules/06_bam.nf'
-include { ALIGN_GENOTYPE_BAM                             } from './modules/06b_align_genotype.nf'
-include { CALL_VCF                                       } from './modules/07_vcf.nf'
-include { GENOTYPING                                     } from './modules/08_genotyping.nf'
-include { QC_ANALYSIS                                    } from './modules/09_qc_analysis.nf'
-include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/10_phylogeny.nf'
-include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/11_coverage.nf'
-include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS  } from './modules/12_mutation.nf'
+include { RECOMBINATION_JPHMM; COLLECT_RECOMBINATION_SUMMARIES } from './modules/06_recombination.nf'
+include { CLINICAL_FILTER                                } from './modules/07_clinical_filter.nf'
+include { ALIGN_GENOTYPE_BAM                             } from './modules/08_canonical_bam.nf'
+include { CALL_VCF                                       } from './modules/09_vcf.nf'
+include { QC_ANALYSIS                                    } from './modules/10_qc_analysis.nf'
+include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/11_phylogeny.nf'
+include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/12_coverage.nf'
+include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS } from './modules/13_mutation.nf'
 
 workflow {
     def fastq_path = file(params.fastq_dir)
 
     def csv_file = fastq_path.listFiles().find { file ->
-        file.name.endsWith('.csv') && (
-            file.name.contains("Sample_Sheet") ||
-            file.name.contains("VHB") ||
-            file.name.contains("VHD")
-        )
+        file.name.toLowerCase().endsWith('.csv')
     }
     if (!csv_file) {
-        error "Aucun fichier CSV valide trouvé dans : ${params.fastq_dir}/"
+        error "Aucun fichier .csv valide trouvé dans : ${params.fastq_dir}/"
     }
+
     def csv_upper  = csv_file.name.toUpperCase()
-    def virus_name = csv_upper.contains("VHD") ? "VHD" : "VHB"
-    def tech_name  = csv_upper.contains("R0") ? "R0" : (csv_upper.contains("POL") ? "POL" : "WG")
-    def min_length = 1000
-    def max_length = 5000
-    if (virus_name == "VHD" && tech_name == "R0") {
-        min_length = 300
-        max_length = 800
-    } else if (virus_name == "VHD") {
-        min_length = 1000
-        max_length = 2000
-    } else if (virus_name == "VHB" && tech_name == "POL") {
-        min_length = 800
-        max_length = 5000
+    def virus_name = (csv_upper.contains("VHD") || csv_upper.contains("HDV")) ? "VHD" : "VHB"
+    def tech_name  = "WG"
+
+    if (csv_upper.contains("POL")) {
+        tech_name = "POL"
+    } else if (csv_upper.contains("R0")) {
+        tech_name = "R0"
     }
-    
-    // Base de données pour le BLAST de génotypage & phylogénie
-    def target_ref_file = null
+
+    // =====================================================================================
+    // BASES DE DONNÉES DE RÉFÉRENCE SELON LA MATRICE BIOLOGIQUE
+    // =====================================================================================
+    def min_length          = 1000
+    def max_length          = 5000
+    def ref_db_primary      = null
+    def tree_ref            = null
+    def canonical_align_ref = null
+
+    def jphmm_ecori_ref = file("${projectDir}/ref/HBV_jphmm_canonical_EcoRI.fasta")
+
     if (virus_name == "VHD") {
-        target_ref_file = (tech_name == "R0") ? file("${projectDir}/ref/HDV_subtype_R0.fasta") : file("${projectDir}/ref/HDV_subtype_WG.fasta")
+        if (tech_name == "R0") {
+            min_length          = 300
+            max_length          = 800
+            tree_ref            = file("${projectDir}/ref/HDV_subtype_R0.fasta", checkIfExists: true)
+            ref_db_primary      = tree_ref
+            canonical_align_ref = tree_ref
+        } else {
+            min_length          = 1000
+            max_length          = 2000
+            tree_ref            = file("${projectDir}/ref/HDV_subtype_WG.fasta", checkIfExists: true)
+            ref_db_primary      = tree_ref
+            canonical_align_ref = tree_ref
+        }
+    } else if (tech_name == "POL") {
+        min_length          = 800
+        max_length          = 5000
+        tree_ref            = file("${projectDir}/ref/HBV_subtype_POL.fasta", checkIfExists: true)
+        ref_db_primary      = tree_ref
+        canonical_align_ref = file("${projectDir}/ref/HBV_genotype_wPrimer.fasta", checkIfExists: true)
     } else {
-        target_ref_file = (tech_name == "POL") ? file("${projectDir}/ref/HBV_subtype_POL.fasta") : file("${projectDir}/ref/HBV_subtype_WG.fasta")
+        min_length          = 1000
+        max_length          = 5000
+        ref_db_primary      = file("${projectDir}/ref/HBV_subtype_WG.fasta", checkIfExists: true)
+        tree_ref            = ref_db_primary
+        canonical_align_ref = file("${projectDir}/ref/HBV_genotype_wPrimer.fasta", checkIfExists: true)
     }
 
-    // Référence canonique HBV standardisée avec amorces (pour alignement mutations & Clair3)
-    def hbv_primer_ref = file("${projectDir}/ref/HBV_genotype_wPrimer.fasta")
+    log.info "========================================================="
+    log.info "SAMPLE SHEET RETENUE: ${csv_file.name}"
+    log.info "VIRUS                : ${virus_name}"
+    log.info "PROTOCOLE            : ${tech_name}"
+    log.info "LONGUEURS CHOPPER    : ${min_length} - ${max_length} bp"
+    log.info "REF PRIMARY/UNIQUE   : ${ref_db_primary.name}"
+    log.info "REF CANONIQUE        : ${canonical_align_ref.name}"
+    log.info "REF ECORI JPHMM      : ${jphmm_ecori_ref.exists() ? jphmm_ecori_ref.name : 'absente (ref/)'}"
+    log.info "MODULE RECOMBINAISON : ${virus_name == 'VHB' ? 'ACTIF (jpHMM sur isolats validés)' : 'IGNORÉ (VHD non supporté)'}"
+    log.info "MODULE MUTATION      : ${virus_name == 'VHB' ? 'ACTIF (Sortie: 13_MUTATION)' : 'IGNORÉ (Aucune sortie)'}"
+    log.info "========================================================="
 
-    GENERATE_RUN_METADATA(fastq_path, target_ref_file, min_length, max_length)
+    // 00. Génération des métadonnées du run
+    GENERATE_RUN_METADATA(
+        fastq_path,
+        ref_db_primary.name,
+        canonical_align_ref.name,
+        min_length,
+        max_length,
+        virus_name,
+        tech_name
+    )
 
+    // Parsing de la Sample Sheet
     def csv_text = csv_file.text
     def separator = csv_text.contains(";") ? ';' : ','
     Channel
@@ -92,7 +133,8 @@ workflow {
     // =====================================================================================
     // WORKFLOW PRINCIPAL
     // =====================================================================================
-    // 01. Préparation Reads
+    
+    // 01. Préparation et filtrage des Reads
     MERGE_FASTQ(samples_ch)
     DEHOST_HOSTILE(MERGE_FASTQ.out.merged_fastq)
     TRIM_CHOPPER(DEHOST_HOSTILE.out.dehosted_fastq, min_length, max_length)
@@ -100,80 +142,123 @@ workflow {
         .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }
         .set { valid_trimmed_ch }
 
-    // 02. Clustering & Polishing
-    AMPLICON_SORTER(valid_trimmed_ch, min_length, max_length)
-    valid_trimmed_ch
-        .join(AMPLICON_SORTER.out.preconsensus_fasta)
-        .set { medaka_input_ch }
-    MEDAKA_CONSENSUS(medaka_input_ch, params.medaka_model)
-    COLLECT_CONSENSUS(
-        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, fasta -> fasta }.collect()
+    // 02. Alignement compétitif
+    COMPETITIVE_ALIGN(
+        valid_trimmed_ch,
+        ref_db_primary,
+        virus_name,
+        tech_name
     )
 
-    // 03. Alignement BAM multi-clusters pour comptage exhaustif
-    valid_trimmed_ch
-        .join(MEDAKA_CONSENSUS.out.final_consensus)
-        .set { bam_input_ch }
-    ALIGN_BAM(bam_input_ch)
-    COUNT_REAL_READS(ALIGN_BAM.out.bam_bai)
-
-    // 04. Hub de Génotypage & Création du Fil Conducteur
-    COUNT_REAL_READS.out.real_counts
-        .map { sample_id, tsv ->
-            def target_dir = file("${workDir}/tmp_csvs")
-            target_dir.mkdirs()
-            def target_file = file("${target_dir}/${sample_id}_results.csv")
-            tsv.copyTo(target_file)
-            return target_file
+    // Préparation du canal pour Medaka
+    COMPETITIVE_ALIGN.out.partitioned_reads
+        .flatMap { sample_id, fq_list, ref_list ->
+            def fqs = fq_list instanceof List ? fq_list : [fq_list]
+            def refs = ref_list instanceof List ? ref_list : [ref_list]
+            def out = []
+            def pattern = java.util.regex.Pattern.compile("^" + java.util.regex.Pattern.quote(sample_id) + "_([A-Za-z0-9]+)\\.fastq\\.gz\$")
+            fqs.each { fq ->
+                def m = pattern.matcher(fq.name)
+                if (m.find()) {
+                    def geno = m.group(1)
+                    def matching_ref = refs.find { it.name == "${sample_id}_${geno}.ref.fasta" }
+                    if (matching_ref) {
+                        out << tuple(sample_id, geno, fq, matching_ref)
+                    }
+                }
+            }
+            return out
         }
-        .collect()
-        .set { all_sorter_csvs_ch }
+        .set { medaka_input_ch }
 
-    GENOTYPING(
-        MEDAKA_CONSENSUS.out.final_consensus.map { id, f -> f }.collect(),
-        target_ref_file,
-        all_sorter_csvs_ch
+    // 03. Polissage Medaka
+    MEDAKA_CONSENSUS(medaka_input_ch, params.medaka_model)
+
+    COLLECT_CONSENSUS(
+        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect()
     )
 
-    // =====================================================================================
-    // 05. RÉALIGNEMENT CONTRE RÉFÉRENCE CANONIQUE POUR VARIANT CALLING ET COUVERTURE
-    // =====================================================================================
-    GENOTYPING.out.genotyped_fastas
+    // 04. Filtrage clinique et validation des isolats
+    CLINICAL_FILTER(
+        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect(),
+        valid_trimmed_ch.map { id, fq -> fq }.collect(),
+        ref_db_primary,
+        COMPETITIVE_ALIGN.out.real_counts.map { id, tsv -> tsv }.collect(),
+        virus_name
+    )
+
+    // 04bis. Détection des Recombinaisons (jpHMM UNIQUEMENT sur les consensus validés)
+    if (virus_name == "VHB") {
+        CLINICAL_FILTER.out.validated_all_fasta
+            .splitFasta(record: [id: true, seqString: true])
+            .map { record ->
+                def clean_id = record.id.tokenize(' ')[0]
+                def fasta_file = file("${workDir}/tmp_validated_${clean_id}.fasta")
+                fasta_file.text = ">${clean_id}\n${record.seqString}\n"
+                tuple(clean_id, fasta_file)
+            }
+            .set { validated_jphmm_input_ch }
+
+        RECOMBINATION_JPHMM(validated_jphmm_input_ch, jphmm_ecori_ref)
+
+        COLLECT_RECOMBINATION_SUMMARIES(
+            RECOMBINATION_JPHMM.out.summary.map { id, file -> file }.collect()
+        )
+    }
+
+    // 05. Alignement sur référence canonique
+    CLINICAL_FILTER.out.genotyped_fastas
         .flatten()
         .map { f -> tuple(f.name, f) }
         .set { genotype_fasta_by_name }
 
-    GENOTYPING.out.genotype_manifest
+    CLINICAL_FILTER.out.genotype_manifest
         .splitCsv(header: true, sep: '\t')
-        .map { row -> tuple(row.filename, row.sample_id, row.genotype) }
+        .map { row -> tuple(row.filename, row.sample_id, row.genotype, row.protocol) }
         .combine(genotype_fasta_by_name, by: 0)
-        .map { filename, sample_id, genotype, fasta -> tuple(sample_id, genotype, fasta) }
+        .map { filename, sample_id, genotype, protocol, fasta -> tuple(sample_id, genotype, protocol, fasta) }
         .set { genotype_ref_ch }
 
     genotype_ref_ch
         .combine(valid_trimmed_ch, by: 0)
-        .map { sample_id, genotype, fasta, trimmed_fastq -> tuple(sample_id, genotype, trimmed_fastq, fasta) }
+        .map { sample_id, genotype, protocol, fasta, trimmed_fastq -> tuple(sample_id, genotype, protocol, trimmed_fastq, fasta) }
         .set { genotype_align_input_ch }
 
     ALIGN_GENOTYPE_BAM(
         genotype_align_input_ch,
-        hbv_primer_ref
+        canonical_align_ref,
+        virus_name
     )
 
-    // 06. Variant Calling Clair3 sur coordonnées canoniques
-    CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
+    // 06. Variant calling et screening des mutations
+    def all_vcfs_ch = Channel.empty().collect()
 
-    // =====================================================================================
-    // 07. CONTRÔLE QUALITÉ CENTRALISÉ
-    // =====================================================================================
+    if (virus_name == "VHB") {
+        CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
+        
+        all_vcfs_ch = CALL_VCF.out.vcf_tbi
+            .map { sample_id, genotype, vcf, tbi -> vcf }
+            .collect()
+
+        SEARCH_HBV_MUTATIONS(
+            CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
+            virus_name,
+            file(params.mutation_tables ?: "${projectDir}/mutation_table"),
+            canonical_align_ref
+        )
+
+        COLLECT_MUTATION_REPORTS(
+            SEARCH_HBV_MUTATIONS.out.sample_raw_variants.collect()
+        )
+    }
+
+    // 07. Contrôle Qualité (QC)
     MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
     DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
     TRIM_CHOPPER.out.trimmed_fastq.map { id, fq -> fq }.collect().set { all_trimmed }
     
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().set { all_bams }
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().set { all_bais }
-    
-    CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> vcf }.collect().set { all_vcfs }
 
     QC_ANALYSIS(
         all_raw,
@@ -181,45 +266,26 @@ workflow {
         all_trimmed,
         all_bams,
         all_bais,
-        all_vcfs,
-        GENOTYPING.out.summary_tsv,
-        GENOTYPING.out.validated_all_fasta,
+        all_vcfs_ch,
+        CLINICAL_FILTER.out.summary_tsv,
+        CLINICAL_FILTER.out.validated_all_fasta,
         min_length,
         max_length
     )
 
-    // =====================================================================================
-    // 08. PHYLOGÉNIE
-    // =====================================================================================
+    // 08. Analyse Phylogénétique
     PREPARE_TREE_REFS(
-        target_ref_file,
-        GENOTYPING.out.summary_tsv
+        tree_ref,
+        CLINICAL_FILTER.out.summary_tsv
     )
     PHYLOGENY(
-        GENOTYPING.out.validated_all_fasta,
+        CLINICAL_FILTER.out.validated_all_fasta,
         PREPARE_TREE_REFS.out.filtered_refs
     )
 
-    // =====================================================================================
-    // 09. COUVERTURE GÉNOMIQUE
-    // =====================================================================================
+    // 09. Profil de couverture
     COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.bam_bai)
     PLOT_GLOBAL_COVERAGE(
         COMPUTE_BAM_COVERAGE.out.sample_cov.collect()
     )
-
-// =====================================================================================
-    // 10. SCREENING DES MUTATIONS (Exécuté uniquement pour VHB)
-    // =====================================================================================
-    if (virus_name == "VHB") {
-        SEARCH_HBV_MUTATIONS(
-            CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
-            virus_name,
-            file(params.mutation_tables ?: "${projectDir}/mutation_table")
-        )
-
-        COLLECT_MUTATION_REPORTS(
-            SEARCH_HBV_MUTATIONS.out.sample_variants.collect()
-        )
-    }
 }

@@ -3,17 +3,12 @@ From: continuumio/miniconda3:latest
 Stage: condabuild
 
 %files
-VIRiONT2_medaka.yml /VIRiONT2_medaka.yml
-# Copie du modèle Clair3 v500 compatible (sans move-table)
-models/r1041_e82_400bps_sup_v500 /opt/models/r1041_e82_400bps_sup_v500
+    VIRiONT2_medaka.yml /VIRiONT2_medaka.yml
 
 %post
-# Installation des outils
-apt-get update && apt-get install -y gcc g++ build-essential
-
-# Création de l'environnement Conda
-/opt/conda/bin/conda env create -f /VIRiONT2_medaka.yml
-/opt/conda/bin/conda clean -a -y
+    apt-get update && apt-get install -y gcc g++ build-essential
+    /opt/conda/bin/conda env create -f /VIRiONT2_medaka.yml
+    /opt/conda/bin/conda clean -a -y
 
 # ---------------------------------------------------------------------
 
@@ -22,20 +17,18 @@ From: rockylinux:8
 Stage: V1
 
 %files from condabuild
-/opt/conda/envs/VIRiONT2_medaka /opt/conda/envs/VIRiONT2_medaka
-/opt/models /opt/models
+    /opt/conda/envs/VIRiONT2_medaka /opt/conda/envs/VIRiONT2_medaka
 
 %environment
-export PATH=/opt/conda/envs/VIRiONT2_medaka/bin:$PATH
-export JAVA_HOME=/opt/conda/envs/VIRiONT2_medaka
-export LC_ALL=C.UTF-8
-export LANG=C.UTF-8
+    export PATH=/opt/conda/envs/VIRiONT2_medaka/bin:$PATH
+    export JAVA_HOME=/opt/conda/envs/VIRiONT2_medaka
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
 
 %post
-dnf update -y
-dnf install -y epel-release
-dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
-dnf groupinstall -y "Development Tools"
-dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel
-
-mkdir -p /media /mnt /srv /data /scratch
+    dnf update -y
+    dnf install -y epel-release
+    dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
+    dnf groupinstall -y "Development Tools"
+    dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel procps-ng
+    mkdir -p /media /mnt /srv /data /scratch
