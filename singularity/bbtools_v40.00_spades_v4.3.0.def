@@ -1,0 +1,42 @@
+Bootstrap: docker
+From: python:3.14.4-slim
+
+
+%post
+    apt-get update && apt-get install -y wget default-jre libgomp1
+
+    # Install BBMap/BBTools
+    wget https://sourceforge.net/projects/bbmap/files/BBMap_40.00.tar.gz/download -O BBTools.tar.gz
+    tar -xzf BBTools.tar.gz -C /usr/local/bin
+    rm -f BBTools.tar.gz
+
+    # Install SPAdes 
+    wget https://github.com/ablab/spades/releases/download/v4.3.0/SPAdes-4.3.0-Linux.tar.gz 
+    tar -xzf SPAdes-4.3.0-Linux.tar.gz -C /usr/local/bin
+    ln -s /usr/local/bin/SPAdes-4.3.0-Linux/bin/spades.py /usr/local/bin/spades.py
+    rm -f SPAdes-4.3.0-Linux.tar.gz
+    
+
+%environment
+    export PATH=/usr/local/bin/bbmap:$PATH
+
+
+%runscript
+    exec "$@"
+
+
+%help
+    Singularity container of BBMap/BBTools v40.00: 
+    BBTools is a suite of fast, multithreaded bioinformatics tools designed for analysis of DNA and RNA sequence data
+    https://github.com/bbushnell/BBTools
+
+    Singularity container of SPAdes v4.3.0: 
+    SPAdes is a versatile toolkit designed for assembly and analysis of sequencing data
+    https://github.com/ablab/spades/
+
+
+%labels
+    Version BBMap/BBTools v40.00
+    Version SPAdes v4.3.0
+    Author Audrey Lapendry
+    Date 2026-08-01

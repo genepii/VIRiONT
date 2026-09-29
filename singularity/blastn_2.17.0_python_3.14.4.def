@@ -1,0 +1,33 @@
+Bootstrap: docker
+From: python:3.14.4-slim
+
+
+%post
+    apt-get update && apt-get install -y wget libgomp1 build-essential
+
+    # Install BLAST
+    wget https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/2.17.0/ncbi-blast-2.17.0+-x64-linux.tar.gz
+    tar -xzf ncbi-blast-2.17.0+-x64-linux.tar.gz -C /usr/local/bin/
+    ln -s /usr/local/bin/ncbi-blast-2.17.0+/bin/* /usr/local/bin/
+    rm -f ncbi-blast-2.17.0+-x64-linux.tar.gz
+
+
+%runscript
+    exec "$@"
+
+
+%help
+    Singularity container of BLAST+ 2.17.0: 
+    The NCBI provides a suite of command-line tools to run BLAST called BLAST+
+    https://blast.ncbi.nlm.nih.gov/doc/blast-help/downloadblastdata.html
+
+    Singularity container of Python 3.14.4: 
+    Python is a programming language that lets you work quickly and integrate systems more effectively
+    https://www.python.org/
+
+
+%labels
+    Version BLAST+ 2.16.0
+    Version Python 3.14.4
+    Author Audrey Lapendry
+    Date 2026-08-04

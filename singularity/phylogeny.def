@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: mambaorg/micromamba:2.3.2
+
+%files
+    phylogeny.yml /phylogeny.yml
+
+%post
+    micromamba env create -f /phylogeny.yml
+    micromamba list -n phylogeny > /opt/conda/envs/phylogeny/packages.txt
+    micromamba env export -n phylogeny > /opt/conda/envs/phylogeny/environment.yml
+    micromamba clean --all --yes
+
+%environment
+    export PATH=/opt/conda/envs/phylogeny/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Tool MAFFT, IQ-TREE, MUSCLE
+    Author SoufianeAlami
+    Date 2026-09-25

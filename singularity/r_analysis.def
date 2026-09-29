@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: mambaorg/micromamba:2.3.2
+
+%files
+    r_analysis.yml /r_analysis.yml
+
+%post
+    micromamba env create -f /r_analysis.yml
+    micromamba list -n r_analysis > /opt/conda/envs/r_analysis/packages.txt
+    micromamba env export -n r_analysis > /opt/conda/envs/r_analysis/environment.yml
+    micromamba clean --all --yes
+
+%environment
+    export PATH=/opt/conda/envs/r_analysis/bin:$PATH
+
+%runscript
+    exec Rscript "$@"
+
+%labels
+    Tool R with ggplot2, gridExtra, ape, phangorn
+    Author SoufianeAlami
+    Date 2026-09-25

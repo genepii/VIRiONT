@@ -1,0 +1,17 @@
+Bootstrap: docker
+From: plaquette/openrdp@sha256:3376b2efc39558f4a437853ca17882c2192536a4ddcda47df558659251459fd9
+
+%help
+SUMMARY
+    Singularity container of Entrez Direct tool: 
+    https://western-bioinfo.github.io/software/OpenRDP
+    KNOWN BUGS
+    None
+    USAGE
+    It is an open-source re-implementation of the RDP recombination detection program..
+
+
+%labels
+    Version 2026.2
+    Author Audrey Lapendry
+    Date 2026-02-19

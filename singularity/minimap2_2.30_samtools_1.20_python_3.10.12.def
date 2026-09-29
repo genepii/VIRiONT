@@ -1,0 +1,65 @@
+Bootstrap: docker
+From: python:3.10.12-slim
+
+%environment
+    export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+    export PATH=/usr/local/bin:$PATH
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget g++ git make autoconf automake bzip2 \
+        zlib1g-dev libbz2-dev liblzma-dev libcurl4-openssl-dev libncurses5-dev procps ca-certificates
+
+    # 1. Install Minimap2
+    wget -q https://github.com/lh3/minimap2/releases/download/v2.30/minimap2-2.30_x64-linux.tar.bz2
+    tar --no-same-owner --no-same-permissions -jxvf minimap2-2.30_x64-linux.tar.bz2 -C /usr/local/bin/
+    ln -sf /usr/local/bin/minimap2-2.30_x64-linux/minimap2 /usr/local/bin/minimap2
+    rm -f minimap2-2.30_x64-linux.tar.bz2
+
+    # 2. Install HTSlib
+    git clone --depth 1 --recursive --branch 1.20 https://github.com/samtools/htslib.git
+    cd htslib
+    autoreconf -i
+    ./configure --prefix=/usr/local
+    make -j 8
+    make install
+    cd ..
+    rm -rf htslib
+
+    # 3. Install Samtools
+    git clone --depth 1 --branch 1.20 https://github.com/samtools/samtools.git
+    cd samtools
+    autoheader
+    autoconf -Wno-syntax
+    ./configure --prefix=/usr/local --with-htslib=/usr/local
+    make -j 8
+    make install
+    cd ..
+    rm -rf samtools
+
+    # 4. Enregistrer la bibliothèque dynamique libhts
+    echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf
+    ldconfig
+
+    # 5. Dépendances Python (pysam, biopython, numpy, matplotlib)
+    pip install --no-cache-dir numpy==1.26.4
+    pip install --no-cache-dir pysam==0.23.3
+    pip install --no-cache-dir biopython>=1.83
+    pip install --no-cache-dir matplotlib==3.5.1
+
+    # 6. Dossiers de montage
+    mkdir -p /media /mnt /srv /data /scratch
+
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%runscript
+    exec "$@"
+
+%labels
+    Version Minimap2 2.30
+    Version Samtools 1.20
+    Version Python 3.10.12 (with pysam, biopython, matplotlib, numpy)
+    Author Audrey Lapendry / Soufiane Alami

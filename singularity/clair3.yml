@@ -1,0 +1,10 @@
+name: clair3
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - clair3=2.0.2
+  - samtools>=1.20
+  - whatshap
+  - parallel

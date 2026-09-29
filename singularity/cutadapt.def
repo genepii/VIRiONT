@@ -1,0 +1,17 @@
+Bootstrap: docker
+From: pipecraft/cutadapt@sha256:7c15a48e3db347326e9b5e48ec6160427bc5d2de4d5b85bf92c17975db250d67
+
+%help
+SUMMARY
+    Singularity container of cutadpt: 
+    https://cutadapt.readthedocs.io/en/stable/#
+    KNOWN BUGS
+    None
+    USAGE
+    Cutadapt finds and removes adapter sequences, primers, poly-A tails and other types of unwanted sequence from your high-throughput sequencing reads.
+
+
+%labels
+    Version 2026.3
+    Author Audrey Lapendry
+    Date 2026-03-19

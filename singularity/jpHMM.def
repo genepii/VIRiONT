@@ -1,0 +1,52 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%environment
+    export PATH=/opt/jphmm/bin:$PATH
+    export JPHMM_PRIORS=/opt/jphmm/priors
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget ca-certificates build-essential python3 python3-biopython minimap2
+
+    mkdir -p /opt/jphmm/bin /opt/jphmm/priors /tmp/jphmm_build
+    cd /tmp/jphmm_build
+    wget -q http://jphmm.gobics.de/jpHMM.tar.gz
+    tar -xzf jpHMM.tar.gz
+
+    # Compilation
+    SRC_DIR=$(find . -type f \( -name "Makefile" -o -name "*.cpp" -o -name "*.c" \) -exec dirname {} \; | head -n 1)
+    if [ -n "$SRC_DIR" ]; then
+        cd "$SRC_DIR"
+        make clean || true
+        make || g++ -O3 -o jpHMM *.cpp -lm || gcc -O3 -o jpHMM *.c -lm
+        cd /tmp/jphmm_build
+    fi
+
+    # Déploiement binaire
+    BIN_PATH=$(find . -type f -name "jpHMM" -perm -111 | head -n 1)
+    cp "$BIN_PATH" /opt/jphmm/bin/jpHMM
+    chmod +x /opt/jphmm/bin/jpHMM
+    ln -sf /opt/jphmm/bin/jpHMM /opt/jphmm/bin/jphmm
+
+    # Déploiement des priors et inputs
+    PRIORS_SRC=$(find /tmp/jphmm_build -type d -name "priors" | head -n 1)
+    [ -n "$PRIORS_SRC" ] && cp -r "$PRIORS_SRC"/* /opt/jphmm/priors/
+
+    INPUT_SRC=$(find /tmp/jphmm_build -type d -name "input" | head -n 1)
+    [ -n "$INPUT_SRC" ] && cp -r "$INPUT_SRC" /opt/jphmm/input
+
+    # Nettoyage
+    apt-get purge -y build-essential
+    apt-get autoremove --purge -y
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /tmp/jphmm_build
+
+%runscript
+    exec jpHMM "$@"
+
+%labels
+    Tool jpHMM with Python3, Biopython and Minimap2
+    Author SoufianeAlami

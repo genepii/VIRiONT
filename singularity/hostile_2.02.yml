@@ -1,0 +1,7 @@
+name: hostile_2.02
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - hostile=2.0.2
