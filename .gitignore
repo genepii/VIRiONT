@@ -1,6 +1,4 @@
-cat << 'EOF' > .gitignore
 # Nextflow & execution
-.nextflow/
 .nextflow.log*
 work/
 nxf_work/
@@ -27,4 +25,3 @@ singularity/
 *.gz
 *.kraken
 *_output.txt
-EOF
