@@ -7,16 +7,18 @@ From: mambaorg/micromamba:2.3.2
 %post
     micromamba env create -f /r_analysis.yml
     micromamba list -n r_analysis > /opt/conda/envs/r_analysis/packages.txt
-    micromamba env export -n r_analysis > /opt/conda/envs/r_analysis/environment.yml
     micromamba clean --all --yes
+
+    mkdir -p /media /mnt /srv /data /scratch
 
 %environment
     export PATH=/opt/conda/envs/r_analysis/bin:$PATH
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
 
 %runscript
-    exec Rscript "$@"
+    exec "$@"
 
 %labels
-    Tool R with ggplot2, gridExtra, ape, phangorn
+    Tool R with ggplot2, gridExtra, ape, phangorn & Python with matplotlib, seaborn, pandas, biopython
     Author SoufianeAlami
-    Date 2026-09-25
