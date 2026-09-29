@@ -19,15 +19,16 @@ process CALL_VCF {
     script:
     """
     echo "=== Variant Calling Clair3 (${clair3_model}) pour ${sample_id} - Génotype ${genotype} ==="
-    export CONDA_PREFIX="/opt/conda/envs/VIRiONT2_medaka"
+    export CONDA_PREFIX="/opt/conda/envs/clair3"
     export PATH="\$CONDA_PREFIX/bin:\$PATH"
 
     # Indexation de la référence canonique
     samtools faidx "${canonical_ref}"
 
-    # Récupération du modèle Clair3
-    MODEL_PATH=\$(find \$CONDA_PREFIX -type d -name "${clair3_model}" 2>/dev/null | head -n 1)
-    if [ -z "\$MODEL_PATH" ]; then
+    # Récupération du modèle Clair3 embarqué
+    if [ -d "\$CONDA_PREFIX/bin/models/${clair3_model}" ]; then
+        MODEL_PATH="\$CONDA_PREFIX/bin/models/${clair3_model}"
+    else
         MODEL_PATH="${clair3_model}"
     fi
     echo "Utilisation du modèle Clair3 : \$MODEL_PATH"
@@ -62,5 +63,12 @@ process CALL_VCF {
         echo "❌ ERREUR : Aucun VCF généré par Clair3 dans clair3_out/"
         exit 1
     fi
+    """
+
+    stub:
+    """
+    echo "=== [STUB] Variant Calling Clair3 pour ${sample_id} - Génotype ${genotype} ==="
+    echo '##fileformat=VCFv4.2' | bgzip -c > "${sample_id}_${genotype}.vcf.gz"
+    touch "${sample_id}_${genotype}.vcf.gz.tbi"
     """
 }

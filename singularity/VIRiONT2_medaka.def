@@ -6,9 +6,14 @@ Stage: condabuild
     VIRiONT2_medaka.yml /VIRiONT2_medaka.yml
 
 %post
-    apt-get update && apt-get install -y gcc g++ build-essential
+    export PIP_NO_CACHE_DIR=1
+    apt-get update && apt-get install -y --no-install-recommends gcc g++ build-essential
     /opt/conda/bin/conda env create -f /VIRiONT2_medaka.yml
-    /opt/conda/bin/conda clean -a -y
+    /opt/conda/bin/conda clean -afy
+    apt-get purge -y gcc g++ build-essential
+    apt-get autoremove -y --purge
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /root/.cache
 
 # ---------------------------------------------------------------------
 
@@ -21,14 +26,22 @@ Stage: V1
 
 %environment
     export PATH=/opt/conda/envs/VIRiONT2_medaka/bin:$PATH
-    export JAVA_HOME=/opt/conda/envs/VIRiONT2_medaka
     export LC_ALL=C.UTF-8
     export LANG=C.UTF-8
 
 %post
     dnf update -y
-    dnf install -y epel-release
-    dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb
-    dnf groupinstall -y "Development Tools"
-    dnf install -y git curl wget tar bzip2 gzip lz4 xz libcurl-devel libxml2-devel openssl-devel procps-ng
+    dnf install -y procps-ng which
+    dnf clean all
+    rm -rf /var/cache/dnf /root/.cache
+
+    # Points de montage pour le cluster CHU
     mkdir -p /media /mnt /srv /data /scratch
+
+%runscript
+    exec medaka "$@"
+
+%labels
+    Tool Medaka 2.2.2
+    Author SoufianeAlami
+    Date 2026-09-25

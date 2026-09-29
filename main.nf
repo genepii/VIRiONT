@@ -16,7 +16,7 @@ include { RECOMBINATION_JPHMM; COLLECT_RECOMBINATION_SUMMARIES } from './modules
 include { CLINICAL_FILTER                                } from './modules/07_clinical_filter.nf'
 include { ALIGN_GENOTYPE_BAM                             } from './modules/08_canonical_bam.nf'
 include { CALL_VCF                                       } from './modules/09_vcf.nf'
-include { QC_ANALYSIS                                    } from './modules/10_qc_analysis.nf'
+include { QC_MOSDEPTH; QC_ANALYSIS                       } from './modules/10_qc_analysis.nf'
 include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/11_phylogeny.nf'
 include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/12_coverage.nf'
 include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS } from './modules/13_mutation.nf'
@@ -260,6 +260,11 @@ workflow {
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().set { all_bams }
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().set { all_bais }
 
+    QC_MOSDEPTH(
+        all_bams,
+        all_bais
+    )
+
     QC_ANALYSIS(
         all_raw,
         all_dehosted,
@@ -269,6 +274,7 @@ workflow {
         all_vcfs_ch,
         CLINICAL_FILTER.out.summary_tsv,
         CLINICAL_FILTER.out.validated_all_fasta,
+        QC_MOSDEPTH.out.cov_files.collect().ifEmpty([]),
         min_length,
         max_length
     )
