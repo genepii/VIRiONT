@@ -133,7 +133,7 @@ if (!is.null(ref_fasta_input) && file.exists(ref_fasta_input)) {
 }
 
 if (nchar(ref_seq) == 0) {
-  cat(sprintf("⚠️ [13_search_mutation] ALERTE : contig '%s' introuvable dans %s pour %s.\n",
+  cat(sprintf("⚠️️ [13_search_mutation] ALERTE : contig '%s' introuvable dans %s pour %s.\n",
               paste0("GT", gt_letter), ref_fasta_input, sample_id))
 } else {
   cat(sprintf("[13_search_mutation] Contig GT%s trouvé, longueur=%d bp.\n", gt_letter, nchar(ref_seq)))
@@ -255,7 +255,7 @@ cat(sprintf("[13_search_mutation] %d allèles retenus sur %d positions.\n",
             nrow(table_vcf), length(unique(table_vcf$REF_POS))))
 
 # ==============================================================================
-# 4. Criblage par Codon et par Nucléotide (Avec Composition Multi-Nucléotidique)
+# 4. Criblage par Codon et par Nucléotide (Résolution fine Majo / Mino)
 # ==============================================================================
 searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
   mut_sub <- mut_table[grepl(pattern_region, mut_table$Region, ignore.case = TRUE), ]
@@ -280,7 +280,7 @@ searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
     if (nrow(hit_vcf) > 0) {
       ref_aa <- if (nchar(codon_ref) == 3) getAA(codon_ref) else "X"
 
-      # Reconstitution du codon majoritaire complet en combinant toutes les positions majoritaires observées
+      # Reconstitution du codon majoritaire complet composite
       codon_majo_composite <- codon_ref
       if (nchar(codon_ref) == 3) {
         majo_hits <- hit_vcf[hit_vcf$base_status == "majo", ]
@@ -293,31 +293,45 @@ searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
           }
         }
       }
+      majo_aa <- if (nchar(codon_majo_composite) == 3) getAA(codon_majo_composite) else ref_aa
 
       for (k in seq_len(nrow(hit_vcf))) {
         r_row <- hit_vcf[k, ]
         pt <- ifelse(r_row$REF_POS == p1, "NUC1_P3", ifelse(r_row$REF_POS == p2, "NUC2_P3", "NUC3_P3"))
+        nt_has_mutated <- (r_row$base != r_row$REF)
 
         if (nchar(codon_ref) == 3) {
           if (r_row$base_status == "majo") {
-            alt_aa <- getAA(codon_majo_composite)
+            alt_aa   <- majo_aa
+            mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
+            warn     <- ifelse(ref_aa != alt_aa && nt_has_mutated, "alerte!", "OK")
           } else {
+            # Variant minoritaire : greffé sur le fond majoritaire composite
             codon_mino <- codon_majo_composite
             if (pt == "NUC1_P3") substr(codon_mino, 1, 1) <- r_row$base
             if (pt == "NUC2_P3") substr(codon_mino, 2, 2) <- r_row$base
             if (pt == "NUC3_P3") substr(codon_mino, 3, 3) <- r_row$base
-            alt_aa <- getAA(codon_mino)
+            
+            mino_aa  <- getAA(codon_mino)
+            alt_aa   <- mino_aa
+            mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
+
+            # Règle de cohérence pour variant minoritaire :
+            # 1. mino_aa == majo_aa -> synonyme de la souche majeure dominante -> OK
+            # 2. mino_aa == ref_aa  -> retour à la séquence sauvage de référence -> OK
+            # 3. Alerte uniquement s'il introduit un tiers acide aminé
+            if (nt_has_mutated && mino_aa != ref_aa && mino_aa != majo_aa) {
+              warn <- "alerte!"
+            } else {
+              warn <- "OK"
+            }
           }
         } else {
-          ref_aa <- r_row$REF
-          alt_aa <- r_row$base
+          ref_aa   <- r_row$REF
+          alt_aa   <- r_row$base
+          mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
+          warn     <- ifelse(nt_has_mutated, "alerte!", "OK")
         }
-
-        mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
-        
-        # Alerte si l'acide aminé est modifié ET que ce nucléotide précis a muté
-        nt_has_mutated <- (r_row$base != r_row$REF)
-        warn <- ifelse(ref_aa != alt_aa && nt_has_mutated, "alerte!", "OK")
 
         results[[length(results) + 1]] <- data.frame(
           REFERENCE     = r_row$REFERENCE,

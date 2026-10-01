@@ -6,10 +6,13 @@ nextflow.enable.dsl=2
     VIRiONT_NF - PIPELINE COMPLET (VHB WG/POL & VHD WG/R0)
 ========================================================================================
 */
+params.primers_adapters = params.primers_adapters ?: "${projectDir}/ref/porechop_adapters.txt"
+
 include { GENERATE_RUN_METADATA                          } from './modules/00_init_logs.nf'
 include { MERGE_FASTQ                                    } from './modules/01_merge.nf'
 include { DEHOST_HOSTILE                                 } from './modules/02_dehost.nf'
 include { TRIM_CHOPPER                                   } from './modules/03_chopper.nf'
+include { TRIM_PRIMERS                                   } from './modules/03b_Trimming.nf'
 include { COMPETITIVE_ALIGN                              } from './modules/04_competitive_align.nf'
 include { MEDAKA_CONSENSUS; COLLECT_CONSENSUS            } from './modules/05_consensus.nf'
 include { RECOMBINATION_JPHMM; COLLECT_RECOMBINATION_SUMMARIES } from './modules/06_recombination.nf'
@@ -20,6 +23,7 @@ include { QC_MOSDEPTH; QC_ANALYSIS                       } from './modules/10_qc
 include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/11_phylogeny.nf'
 include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/12_coverage.nf'
 include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS } from './modules/13_mutation.nf'
+include { SV_SPLICING_VHB; COLLECT_SPLICING_REPORTS      } from './modules/14_sv_splicing.nf'
 
 workflow {
     def fastq_path = file(params.fastq_dir)
@@ -51,6 +55,7 @@ workflow {
     def canonical_align_ref = null
 
     def jphmm_ecori_ref = file("${projectDir}/ref/HBV_jphmm_canonical_EcoRI.fasta")
+    def primers_file    = file(params.primers_adapters, checkIfExists: true)
 
     if (virus_name == "VHD") {
         if (tech_name == "R0") {
@@ -87,9 +92,11 @@ workflow {
     log.info "LONGUEURS CHOPPER    : ${min_length} - ${max_length} bp"
     log.info "REF PRIMARY/UNIQUE   : ${ref_db_primary.name}"
     log.info "REF CANONIQUE        : ${canonical_align_ref.name}"
+    log.info "ROGNAGE AMORCES      : Porechop_ABI (${primers_file.name})"
     log.info "REF ECORI JPHMM      : ${jphmm_ecori_ref.exists() ? jphmm_ecori_ref.name : 'absente (ref/)'}"
     log.info "MODULE RECOMBINAISON : ${virus_name == 'VHB' ? 'ACTIF (jpHMM sur isolats validés)' : 'IGNORÉ (VHD non supporté)'}"
     log.info "MODULE MUTATION      : ${virus_name == 'VHB' ? 'ACTIF (Sortie: 13_MUTATION)' : 'IGNORÉ (Aucune sortie)'}"
+    log.info "MODULE SV SPLICING   : ${(virus_name == 'VHB' && tech_name == 'WG') ? 'ACTIF (Sniffles2 sur amplicons WG)' : 'IGNORÉ (Non-applicable)'}"
     log.info "========================================================="
 
     // 00. Génération des métadonnées du run
@@ -134,11 +141,15 @@ workflow {
     // WORKFLOW PRINCIPAL
     // =====================================================================================
     
-    // 01. Préparation et filtrage des Reads
+    // 01. Préparation, filtrage qualité (Chopper) et Amorces (Porechop_ABI)
     MERGE_FASTQ(samples_ch)
     DEHOST_HOSTILE(MERGE_FASTQ.out.merged_fastq)
     TRIM_CHOPPER(DEHOST_HOSTILE.out.dehosted_fastq, min_length, max_length)
-    TRIM_CHOPPER.out.trimmed_fastq
+
+    // Étape 03b : Rognage des amorces
+    TRIM_PRIMERS(TRIM_CHOPPER.out.trimmed_fastq, primers_file)
+
+    TRIM_PRIMERS.out.fastq
         .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }
         .set { valid_trimmed_ch }
 
@@ -255,7 +266,7 @@ workflow {
     // 07. Contrôle Qualité (QC)
     MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
     DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
-    TRIM_CHOPPER.out.trimmed_fastq.map { id, fq -> fq }.collect().set { all_trimmed }
+    TRIM_PRIMERS.out.fastq.map { id, fq -> fq }.collect().set { all_trimmed }
     
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().set { all_bams }
     ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().set { all_bais }
@@ -294,4 +305,13 @@ workflow {
     PLOT_GLOBAL_COVERAGE(
         COMPUTE_BAM_COVERAGE.out.sample_cov.collect()
     )
+
+    // 10. Détection des variants structuraux / épissage (VHB WG uniquement)
+    if (virus_name == "VHB" && tech_name == "WG") {
+        SV_SPLICING_VHB(ALIGN_GENOTYPE_BAM.out.for_vcf)
+
+        COLLECT_SPLICING_REPORTS(
+            SV_SPLICING_VHB.out.table.map { sample_id, geno, tsv -> tsv }.collect()
+        )
+    }
 }
