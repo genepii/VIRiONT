@@ -23,32 +23,32 @@ process COMPETITIVE_ALIGN {
 
     script:
     """
-    echo "=== Alignement competitif PRONAME pour ${sample_id} (${virus_name} - ${tech_name}) ==="
+    echo "=== Alignement competitif pour ${sample_id} (${virus_name} ${tech_name}) ==="
     echo "--> Reference retenue : ${ref_db.name}"
 
-    # Alignement minimap2 avec filtrage MAPQ >= 10 direct dans le BAM
-    minimap2 -ax map-ont -t ${task.cpus} --secondary=no "${ref_db}" "${trimmed_fastq}" | \\
-        samtools view -b -F 2048 -q 10 | \\
+    # Alignement competitif sans filtre MAPQ (conserve les lectures assignees par score AS)
+    minimap2 -ax map-ont -t ${task.cpus} --secondary=no "${ref_db}" "${trimmed_fastq}" | \
+        samtools view -b -F 2308 | \
         samtools sort -@ ${task.cpus} -o "${sample_id}_competitive.bam"
 
     samtools index "${sample_id}_competitive.bam"
 
-    # Partitionnement et comptage
-    04_dispatch_reads.py \\
-        "${sample_id}_competitive.bam" \\
-        "${ref_db}" \\
-        "${sample_id}" \\
-        "reads_by_geno" \\
-        0.05 \\
-        20
+    04_dispatch_reads.py \
+        "${sample_id}_competitive.bam" \
+        "${ref_db}" \
+        "${sample_id}" \
+        "reads_by_geno" \
+        0.05 \
+        20 \
+        "${virus_name}"
     """
 
     stub:
     """
     mkdir -p reads_by_geno
     touch "${sample_id}_competitive.bam" "${sample_id}_competitive.bam.bai"
-    echo -e "cluster\\treads\\tpercentage\\nHBV_A2\\t1000\\t100.0" > "${sample_id}_real_counts.tsv"
+    echo -e "cluster\treads\tpercentage\nHBV_A2\t1000\t100.0" > "${sample_id}_real_counts.tsv"
     touch "reads_by_geno/${sample_id}_A2.fastq.gz"
-    echo -e ">HBV_A2\\nACGT" > "reads_by_geno/${sample_id}_A2.ref.fasta"
+    echo -e ">HBV_A2\nACGT" > "reads_by_geno/${sample_id}_A2.ref.fasta"
     """
 }

@@ -6,7 +6,20 @@ nextflow.enable.dsl=2
     VIRiONT_NF - PIPELINE COMPLET (VHB WG/POL & VHD WG/R0)
 ========================================================================================
 */
+
+// Initialisation propre des paramètres par défaut (évite les warnings Nextflow)
+params.fastq_dir        = params.fastq_dir        ?: null
+params.outdir           = params.outdir           ?: "results"
+params.run_id           = params.run_id           ?: null
+params.medaka_model     = params.medaka_model     ?: "r1041_e82_400bps_sup_v4.2.0"
+params.clair3_model     = params.clair3_model     ?: "r1041_e82_400bps_sup_v4.2.0"
 params.primers_adapters = params.primers_adapters ?: "${projectDir}/ref/porechop_adapters.txt"
+params.mutation_tables  = params.mutation_tables  ?: "${projectDir}/mutation_table"
+params.min_reads        = params.min_reads        ?: 20
+params.max_reads        = params.max_reads        ?: 1000
+params.mi_cutoff        = params.mi_cutoff        ?: 30.0
+params.hostile_index    = params.hostile_index    ?: "human-t2t-hla"
+params.hostile_cache    = params.hostile_cache    ?: "${projectDir}/hostile_cache"
 
 include { GENERATE_RUN_METADATA                          } from './modules/00_init_logs.nf'
 include { MERGE_FASTQ                                    } from './modules/01_merge.nf'
@@ -20,10 +33,11 @@ include { CLINICAL_FILTER                                } from './modules/07_cl
 include { ALIGN_GENOTYPE_BAM                             } from './modules/08_canonical_bam.nf'
 include { CALL_VCF                                       } from './modules/09_vcf.nf'
 include { QC_MOSDEPTH; QC_ANALYSIS                       } from './modules/10_qc_analysis.nf'
-include { PREPARE_TREE_REFS; PHYLOGENY                   } from './modules/11_phylogeny.nf'
+include { PREPARE_TREE_REFS; PHYLOGENY; PLOT_TREE        } from './modules/11_phylogeny.nf'
 include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE     } from './modules/12_coverage.nf'
-include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS } from './modules/13_mutation.nf'
+include { SEARCH_HBV_MUTATIONS; COLLECT_MUTATION_REPORTS; SEARCH_HBV_INDELS; COLLECT_INDEL_REPORTS } from './modules/13_mutation.nf'
 include { SV_SPLICING_VHB; COLLECT_SPLICING_REPORTS      } from './modules/14_sv_splicing.nf'
+include { FASTFINDER                                     } from './modules/15_fastfinder.nf'
 
 workflow {
     def fastq_path = file(params.fastq_dir)
@@ -44,6 +58,17 @@ workflow {
     } else if (csv_upper.contains("R0")) {
         tech_name = "R0"
     }
+
+    // =====================================================================================
+    // EXTRACTION STRICTE DE LA DATE À 6 CHIFFRES (ex: 260931) SANS LE NUMÉRO DE RUN
+    // =====================================================================================
+    def raw_folder   = (fastq_path.name == 'fastq_pass') ? fastq_path.parent.name : fastq_path.name
+    def clean_folder = raw_folder.replaceAll(/^ONT_run_/, '')
+
+    def all_dates = ("${clean_folder}_${csv_file.name}" =~ /(?<![0-9])[0-9]{6}(?![0-9])/).findAll()
+    def run_date  = all_dates ? all_dates[0] : (clean_folder =~ /[0-9]{6}/ ? (clean_folder =~ /[0-9]{6}/)[0] : "RUN")
+
+    def run_id = params.run_id ?: "${run_date}_${virus_name}_${tech_name}"
 
     // =====================================================================================
     // BASES DE DONNÉES DE RÉFÉRENCE SELON LA MATRICE BIOLOGIQUE
@@ -87,6 +112,7 @@ workflow {
 
     log.info "========================================================="
     log.info "SAMPLE SHEET RETENUE: ${csv_file.name}"
+    log.info "IDENTIFIANT RUN      : ${run_id}"
     log.info "VIRUS                : ${virus_name}"
     log.info "PROTOCOLE            : ${tech_name}"
     log.info "LONGUEURS CHOPPER    : ${min_length} - ${max_length} bp"
@@ -94,9 +120,10 @@ workflow {
     log.info "REF CANONIQUE        : ${canonical_align_ref.name}"
     log.info "ROGNAGE AMORCES      : Porechop_ABI (${primers_file.name})"
     log.info "REF ECORI JPHMM      : ${jphmm_ecori_ref.exists() ? jphmm_ecori_ref.name : 'absente (ref/)'}"
-    log.info "MODULE RECOMBINAISON : ${virus_name == 'VHB' ? 'ACTIF (jpHMM sur isolats validés)' : 'IGNORÉ (VHD non supporté)'}"
+    log.info "MODULE RECOMBINAISON : ${(virus_name == 'VHB' && tech_name == 'WG') ? 'ACTIF (jpHMM sur isolats validés)' : 'IGNORÉ (Non-applicable)'}"
     log.info "MODULE MUTATION      : ${virus_name == 'VHB' ? 'ACTIF (Sortie: 13_MUTATION)' : 'IGNORÉ (Aucune sortie)'}"
     log.info "MODULE SV SPLICING   : ${(virus_name == 'VHB' && tech_name == 'WG') ? 'ACTIF (Sniffles2 sur amplicons WG)' : 'IGNORÉ (Non-applicable)'}"
+    log.info "MODULE FASTFINDER    : ACTIF (Sortie: 15_FASTFINDER)"
     log.info "========================================================="
 
     // 00. Génération des métadonnées du run
@@ -167,7 +194,7 @@ workflow {
             def fqs = fq_list instanceof List ? fq_list : [fq_list]
             def refs = ref_list instanceof List ? ref_list : [ref_list]
             def out = []
-            def pattern = java.util.regex.Pattern.compile("^" + java.util.regex.Pattern.quote(sample_id) + "_([A-Za-z0-9]+)\\.fastq\\.gz\$")
+            def pattern = java.util.regex.Pattern.compile("^" + java.util.regex.Pattern.quote(sample_id) + "_(.+)\\.fastq\\.gz\$")
             fqs.each { fq ->
                 def m = pattern.matcher(fq.name)
                 if (m.find()) {
@@ -186,20 +213,21 @@ workflow {
     MEDAKA_CONSENSUS(medaka_input_ch, params.medaka_model)
 
     COLLECT_CONSENSUS(
-        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect()
+        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect().ifEmpty([])
     )
 
-    // 04. Filtrage clinique et validation des isolats
+    // 04. Filtrage clinique et validation des isolats (avec tech_name)
     CLINICAL_FILTER(
-        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect(),
-        valid_trimmed_ch.map { id, fq -> fq }.collect(),
+        MEDAKA_CONSENSUS.out.final_consensus.map { sample_id, geno, fasta -> fasta }.collect().ifEmpty([]) ,
+        valid_trimmed_ch.map { id, fq -> fq }.collect().ifEmpty([]),
         ref_db_primary,
-        COMPETITIVE_ALIGN.out.real_counts.map { id, tsv -> tsv }.collect(),
-        virus_name
+        COMPETITIVE_ALIGN.out.real_counts.map { id, tsv -> tsv }.collect().ifEmpty([]),
+        virus_name,
+        tech_name
     )
 
-    // 04bis. Détection des Recombinaisons (jpHMM UNIQUEMENT sur les consensus validés)
-    if (virus_name == "VHB") {
+    // 04bis. Détection des Recombinaisons (jpHMM UNIQUEMENT sur VHB WG)
+    if (virus_name == "VHB" && tech_name == "WG") {
         CLINICAL_FILTER.out.validated_all_fasta
             .splitFasta(record: [id: true, seqString: true])
             .map { record ->
@@ -213,7 +241,7 @@ workflow {
         RECOMBINATION_JPHMM(validated_jphmm_input_ch, jphmm_ecori_ref)
 
         COLLECT_RECOMBINATION_SUMMARIES(
-            RECOMBINATION_JPHMM.out.summary.map { id, file -> file }.collect()
+            RECOMBINATION_JPHMM.out.summary.map { id, file -> file }.collect().ifEmpty([])
         )
     }
 
@@ -241,8 +269,8 @@ workflow {
         virus_name
     )
 
-    // 06. Variant calling et screening des mutations
-    def all_vcfs_ch = Channel.empty().collect()
+    // 06. Variant calling et screening des mutations (Substitutions ET Indels)
+    def all_vcfs_ch = Channel.value([])
 
     if (virus_name == "VHB") {
         CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
@@ -250,26 +278,43 @@ workflow {
         all_vcfs_ch = CALL_VCF.out.vcf_tbi
             .map { sample_id, genotype, vcf, tbi -> vcf }
             .collect()
+            .ifEmpty([])
 
+        def vcf_triplet_ch = CALL_VCF.out.vcf_tbi
+            .map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) }
+
+        // 1. Substitutions (script R original sanctuarisé)
         SEARCH_HBV_MUTATIONS(
-            CALL_VCF.out.vcf_tbi.map { sample_id, genotype, vcf, tbi -> tuple(sample_id, genotype, vcf) },
+            vcf_triplet_ch,
             virus_name,
-            file(params.mutation_tables ?: "${projectDir}/mutation_table"),
+            file(params.mutation_tables),
             canonical_align_ref
         )
 
         COLLECT_MUTATION_REPORTS(
-            SEARCH_HBV_MUTATIONS.out.sample_raw_variants.collect()
+            SEARCH_HBV_MUTATIONS.out.sample_raw_variants.collect().ifEmpty([])
+        )
+
+        // 2. Indels & Frameshifts (script R dédié et étanche)
+        SEARCH_HBV_INDELS(
+            vcf_triplet_ch,
+            virus_name,
+            file(params.mutation_tables),
+            canonical_align_ref
+        )
+
+        COLLECT_INDEL_REPORTS(
+            SEARCH_HBV_INDELS.out.sample_raw_indels.collect().ifEmpty([])
         )
     }
 
     // 07. Contrôle Qualité (QC)
-    MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().set { all_raw }
-    DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().set { all_dehosted }
-    TRIM_PRIMERS.out.fastq.map { id, fq -> fq }.collect().set { all_trimmed }
+    MERGE_FASTQ.out.merged_fastq.map { id, fq -> fq }.collect().ifEmpty([]).set { all_raw }
+    DEHOST_HOSTILE.out.dehosted_fastq.map { id, fq -> fq }.collect().ifEmpty([]).set { all_dehosted }
+    TRIM_PRIMERS.out.fastq.map { id, fq -> fq }.collect().ifEmpty([]).set { all_trimmed }
     
-    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().set { all_bams }
-    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().set { all_bais }
+    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bam }.collect().ifEmpty([]).set { all_bams }
+    ALIGN_GENOTYPE_BAM.out.bam_bai.map { sample_id, geno, bam, bai -> bai }.collect().ifEmpty([]).set { all_bais }
 
     QC_MOSDEPTH(
         all_bams,
@@ -287,7 +332,9 @@ workflow {
         CLINICAL_FILTER.out.validated_all_fasta,
         QC_MOSDEPTH.out.cov_files.collect().ifEmpty([]),
         min_length,
-        max_length
+        max_length,
+        virus_name,
+        tech_name
     )
 
     // 08. Analyse Phylogénétique
@@ -299,11 +346,14 @@ workflow {
         CLINICAL_FILTER.out.validated_all_fasta,
         PREPARE_TREE_REFS.out.filtered_refs
     )
+    PLOT_TREE(PHYLOGENY.out.tree_file)
 
     // 09. Profil de couverture
     COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.bam_bai)
     PLOT_GLOBAL_COVERAGE(
-        COMPUTE_BAM_COVERAGE.out.sample_cov.collect()
+        COMPUTE_BAM_COVERAGE.out.sample_cov.collect().ifEmpty([]),
+        virus_name,
+        tech_name
     )
 
     // 10. Détection des variants structuraux / épissage (VHB WG uniquement)
@@ -311,7 +361,14 @@ workflow {
         SV_SPLICING_VHB(ALIGN_GENOTYPE_BAM.out.for_vcf)
 
         COLLECT_SPLICING_REPORTS(
-            SV_SPLICING_VHB.out.table.map { sample_id, geno, tsv -> tsv }.collect()
+            SV_SPLICING_VHB.out.table.map { sample_id, geno, tsv -> tsv }.collect().ifEmpty([])
         )
     }
+
+    // 11. Export FastFinder / GLIMS
+    FASTFINDER(
+        CLINICAL_FILTER.out.summary_tsv,
+        CLINICAL_FILTER.out.validated_all_fasta,
+        run_id
+    )
 }

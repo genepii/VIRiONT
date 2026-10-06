@@ -15,6 +15,7 @@ process CLINICAL_FILTER {
     path ref_db
     path count_tsvs
     val virus_name
+    val tech_name
 
     output:
     path "SUMMARY_Multi_Infection.tsv"        , emit: summary_tsv
@@ -33,7 +34,8 @@ process CLINICAL_FILTER {
         "." \\
         "${ref_db}" \\
         ${cutoff} \\
-        "${virus_name}"
+        "${virus_name}" \\
+        "${tech_name}"
 
     # 2. Rapport graphique combinant profils complets et tableau simple (>= 5 reads)
     07_generate_report.R \\

@@ -21,7 +21,7 @@ process MEDAKA_CONSENSUS {
     export KMP_DUPLICATE_LIB_OK=TRUE
     export OMP_NUM_THREADS=1
 
-    echo "=== Polissage Medaka pour ${sample_id} - Génotype ${genotype} ==="
+echo "=== Polissage Medaka pour ${sample_id} - Génotype ${genotype} ==="
 
     medaka_consensus \\
         -i "${geno_fastq}" \\

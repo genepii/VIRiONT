@@ -1,16 +1,21 @@
 nextflow.enable.dsl=2
+
 /*
 ========================================================================================
     MODULE 12: CALCUL ET TRACÉ DES PROFILS DE COUVERTURE (12_COVERAGE, PAR GÉNOTYPE)
 ========================================================================================
 */
+
 process COMPUTE_BAM_COVERAGE {
     tag "${sample_id}_${genotype}"
     publishDir path: { "${params.outdir}/12_COVERAGE/${sample_id}/${genotype}" }, mode: 'copy'
+
     input:
     tuple val(sample_id), val(genotype), path(bam), path(bai)
+
     output:
     path "${sample_id}_${genotype}.cov", emit: sample_cov
+
     script:
     """
     echo "=== Calcul de la couverture bedtools pour ${sample_id} - Génotype ${genotype} ==="
@@ -25,17 +30,22 @@ process COMPUTE_BAM_COVERAGE {
 
 process PLOT_GLOBAL_COVERAGE {
     publishDir "${params.outdir}/12_COVERAGE", mode: 'copy'
+
     input:
     path cov_files
+    val virus_name
+    val tech_name
+
     output:
     path "VIRiONT_coverage_profiles.pdf", optional: true, emit: coverage_pdf
-    path "cov_sum.cov"                 , optional: true, emit: global_cov
+    path "cov_sum.cov"                  , optional: true, emit: global_cov
+
     script:
     """
-    echo "=== Concaténation des couvertures et tracé des profils R ==="
+    echo "=== Concaténation des couvertures et tracé des profils R (${virus_name} ${tech_name}) ==="
     cat ${cov_files} > cov_sum.cov
     if [ -s "cov_sum.cov" ]; then
-        Rscript ${projectDir}/bin/12_plot_cov_MI.R cov_sum.cov VIRiONT_coverage_profiles.pdf || true
+        Rscript ${projectDir}/bin/12_plot_cov_MI.R cov_sum.cov VIRiONT_coverage_profiles.pdf "${virus_name}" "${tech_name}" || true
     else
         echo "WARNING: Aucun profil de couverture à tracer."
     fi

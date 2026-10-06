@@ -35,7 +35,7 @@ if (nrow(summary_dt) > 0 && "status" %in% colnames(summary_dt)) {
   valid_samples <- unique(summary_dt$sample[tolower(summary_dt$status) == "validated"])
 }
 
-# 2. Lecture préalable des métriques de rétention si générées par 10_plot_read_lengths.py
+# 2. Lecture préalable des métriques de rétention générées par 10_plot_read_lengths.py
 retention_file <- "read_retention_metrics.tsv"
 retention_map <- list()
 
@@ -198,8 +198,8 @@ for (rf in raw_files) {
   }
 }
 
-# Export de la table récapitulative
-output_file <- "RUN_METRICS_SUMMARY_TABLE.tsv"
+# Export de la table récapitulative au format CSV
+output_file <- "RUN_METRICS_SUMMARY_TABLE.csv"
 qc_columns <- c(
   "sample", "step", "assignedref", "read_count", "minlengthread",
   "maxlengthread", "meanread_length", "medianread_length",
@@ -214,5 +214,5 @@ if (length(qc_list) > 0) {
   colnames(final_df) <- qc_columns
 }
 
-write.table(final_df, output_file, sep = "\t", quote = FALSE, row.names = FALSE)
-cat("RUN_METRICS_SUMMARY_TABLE.tsv généré avec succès avec les taux de rétention.\n")
+write.table(final_df, output_file, sep = ",", quote = FALSE, row.names = FALSE)
+cat("RUN_METRICS_SUMMARY_TABLE.csv généré avec succès avec les taux de rétention.\n")

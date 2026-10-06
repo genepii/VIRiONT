@@ -133,7 +133,7 @@ if (!is.null(ref_fasta_input) && file.exists(ref_fasta_input)) {
 }
 
 if (nchar(ref_seq) == 0) {
-  cat(sprintf("⚠️️ [13_search_mutation] ALERTE : contig '%s' introuvable dans %s pour %s.\n",
+  cat(sprintf(" [13_search_mutation] ALERTE : contig '%s' introuvable dans %s pour %s.\n",
               paste0("GT", gt_letter), ref_fasta_input, sample_id))
 } else {
   cat(sprintf("[13_search_mutation] Contig GT%s trouvé, longueur=%d bp.\n", gt_letter, nchar(ref_seq)))

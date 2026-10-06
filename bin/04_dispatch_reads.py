@@ -11,32 +11,33 @@ from Bio import SeqIO
 
 def main():
     if len(sys.argv) < 5:
-        print("Usage: 04_dispatch_reads.py <bam_file> <ref_panel_fasta> <sample_id> <output_dir> [cutoff_ratio=0.05] [min_reads=20]")
+        print("Usage: 04_dispatch_reads.py <bam_file> <ref_panel_fasta> <sample_id> <output_dir> [cutoff_ratio=0.05] [min_reads=20] [virus_name=VHB]")
         sys.exit(1)
 
-    bam_path = sys.argv[1]
+    bam_path       = sys.argv[1]
     ref_panel_path = sys.argv[2]
-    sample_id = sys.argv[3]
-    out_dir = sys.argv[4]
-    cutoff_ratio = float(sys.argv[5]) if len(sys.argv) > 5 else 0.05
-    min_reads_abs = int(sys.argv[6]) if len(sys.argv) > 6 else 20
+    sample_id      = sys.argv[3]
+    out_dir        = sys.argv[4]
+    cutoff_ratio   = float(sys.argv[5]) if len(sys.argv) > 5 else 0.05
+    min_reads_abs  = int(sys.argv[6]) if len(sys.argv) > 6 else 20
+    virus_name     = sys.argv[7].upper() if len(sys.argv) > 7 else "VHB"
 
     os.makedirs(out_dir, exist_ok=True)
 
     # 1. Indexation locale des références du panel
     ref_sequences = {rec.id: rec for rec in SeqIO.parse(ref_panel_path, "fasta")}
 
-    # 2. Comptage et assignation des reads par référence
+    # 2. Comptage et assignation des reads par référence (conservation des alignements primaires sans filtre MAPQ)
     bam = pysam.AlignmentFile(bam_path, "rb")
     reads_per_ref = defaultdict(list)
 
     for read in bam.fetch(until_eof=True):
-        if not read.is_unmapped and read.mapping_quality >= 10:
+        if not read.is_unmapped and not read.is_secondary and not read.is_supplementary:
             reads_per_ref[read.reference_name].append(read.query_name)
     bam.close()
 
     total_assigned = sum(len(r) for r in reads_per_ref.values())
-    print(f"Total reads assignes (MAPQ >= 10) : {total_assigned}")
+    print(f"Total reads assignes (alignements primaires) : {total_assigned}")
 
     # 3. Export du tableau de comptage effectif
     counts_file = f"{sample_id}_real_counts.tsv"
@@ -52,8 +53,13 @@ def main():
         cnt = len(qnames)
         ratio = cnt / total_assigned if total_assigned > 0 else 0.0
         if ratio >= cutoff_ratio and cnt >= min_reads_abs:
-            m_geno = re.search(r"(?:HBV|HDV)[_-]?([A-Za-z0-9]+)", ref_name, re.IGNORECASE)
-            geno_tag = m_geno.group(1) if m_geno else re.sub(r"[^A-Za-z0-9]", "", ref_name)
+            if "VHD" in virus_name or "HDV" in virus_name:
+                # VHD : Conservation intégrale du nom de référence (ex: HDV1a, HDV1_NEW_SUBTYPE)
+                geno_tag = re.sub(r"[^A-Za-z0-9_.-]", "", ref_name)
+            else:
+                # VHB : Extraction du génotype en retirant le préfixe HBV_
+                m_geno = re.search(r"HBV[_-]?([A-Za-z0-9]+)", ref_name, re.IGNORECASE)
+                geno_tag = m_geno.group(1) if m_geno else re.sub(r"[^A-Za-z0-9_.-]", "", ref_name)
 
             # Écriture de la référence dédiée au sous-génotype
             sub_ref_path = os.path.join(out_dir, f"{sample_id}_{geno_tag}.ref.fasta")

@@ -100,13 +100,12 @@ for i, j in combinations(range(n), 2):
 ######################################################
 matrice = pd.DataFrame(matrix, index=noms, columns=noms)
 
-# Dimensionnement dynamique
 figsize = max(11, 7 + int(n * 0.7))
 font_size = max(9, min(15, int(130 / n)))
 
 fig, ax = plt.subplots(figsize=(figsize, figsize))
 
-# 1. Tracé avec palette inversée : forte ressemblance (< divergence) = ROUGE
+# 1. Tracé avec échelle figée [0.0 - 7.5]
 sns.heatmap(
     matrice,
     annot=False,
@@ -114,24 +113,25 @@ sns.heatmap(
     linecolor="white",
     square=True,
     cmap="YlOrRd_r",
+    vmin=0.0,
+    vmax=7.5,
     cbar=True,
     cbar_kws={'label': '% Divergence (Rouge = Forte identité)', 'shrink': 0.8},
     ax=ax
 )
 
-# Fond gris clair pour les NaN
+# Fond gris clair pour la diagonale et les NaN
 ax.collections[0].cmap.set_bad('#e8e8e8')
 
-# Calcul du seuil dynamique pour adapter la lisibilité du texte
-valid_vals = matrix[~np.isnan(matrix)]
-threshold_val = np.percentile(valid_vals, 35) if len(valid_vals) > 0 else 2.0
+# Seuil de contraste fixe adapté à l'échelle [0.0 - 7.5]
+# En dessous de 2.5% le fond est rouge foncé -> texte blanc, au-dessus -> texte noir
+threshold_val = 2.5
 
-# 2. Écriture manuelle du texte dans chaque case
+# 2. Écriture du texte dans chaque case
 for row_idx in range(n):
     for col_idx in range(n):
         val = matrix[row_idx, col_idx]
         if not np.isnan(val):
-            # Blanc sur les cases rouges (forte identité), noir sur les cases jaunes/claires
             text_color = "white" if val <= threshold_val else "black"
             ax.text(
                 col_idx + 0.5,

@@ -60,7 +60,7 @@ process CALL_VCF {
         mv clair3_out/merge_output.vcf.gz "${sample_id}_${genotype}.vcf.gz"
         tabix -f -p vcf "${sample_id}_${genotype}.vcf.gz"
     else
-        echo "❌ ERREUR : Aucun VCF généré par Clair3 dans clair3_out/"
+        echo "ERREUR : Aucun VCF généré par Clair3 dans clair3_out/"
         exit 1
     fi
     """

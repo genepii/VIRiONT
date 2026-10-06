@@ -275,17 +275,11 @@ legend(
   legend = c("Consensus du Run", "Séquences de Référence", "Bootstrap (>= 50%)"),
 
   col = c("#dd4742", "#347ece", "#555555"),
-
   pch = c(19, 19, NA),
-
-  lty = c(NA, NA, 0),
-
+  lty = c(0, 0, 0),
   pt.cex = 1.2,
-
   bty = "n",
-
   cex = 0.85
-
 )
 
 

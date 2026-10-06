@@ -62,13 +62,13 @@ def trim_concatemer(seq_str, expected_len):
     """
     if not expected_len or len(seq_str) <= int(expected_len * 1.15):
         return seq_str
-    print(f"✂️ Curation concatémère : {len(seq_str)} bp -> ramené à {expected_len} bp")
+    print(f"Curation concatémère : {len(seq_str)} bp -> ramené à {expected_len} bp")
     return seq_str[:expected_len]
 
 
 def main():
     if len(sys.argv) < 7:
-        print("Usage: 07_genotype_and_filter.py <consensus_dir> <fastqs_dir> <counts_dir> <ref_fasta> <cutoff_percent> [virus_name]")
+        print("Usage: 07_genotype_and_filter.py <consensus_dir> <fastqs_dir> <counts_dir> <ref_fasta> <cutoff_percent> <virus_name> [tech_name]")
         sys.exit(1)
 
     consensus_dir = sys.argv[1]
@@ -76,7 +76,8 @@ def main():
     counts_dir    = sys.argv[3]
     ref_path      = sys.argv[4]
     cutoff        = float(sys.argv[5])
-    virus_name    = sys.argv[6] if len(sys.argv) > 6 else "VHB"
+    virus_name    = sys.argv[6].upper() if len(sys.argv) > 6 else "VHB"
+    tech_name     = sys.argv[7].upper() if len(sys.argv) > 7 else "WG"
 
     active_refs = load_references(ref_path)
 
@@ -85,17 +86,17 @@ def main():
     manifest_rows = []
     os.makedirs("renamed_consensus", exist_ok=True)
 
-    # Récupérer tous les fichiers de comptage réel issus de PRONAME (04_competitive_align)
+    # Récupérer tous les fichiers de comptage réel issus de 04_competitive_align
     count_files = sorted(glob.glob(os.path.join(counts_dir, "*_real_counts.tsv")))
 
     for c_file in count_files:
         sample_id = os.path.basename(c_file).replace("_real_counts.tsv", "")
-        protocol = "WG"
+        protocol = tech_name  # Protocole dynamique (R0, POL, WG)
 
         try:
             df_counts = pd.read_csv(c_file, sep="\t")
         except Exception as e:
-            print(f"⚠️ Erreur lecture {c_file}: {e}")
+            print(f"Erreur lecture {c_file}: {e}")
             continue
 
         if df_counts.empty:
@@ -109,9 +110,14 @@ def main():
             ref_name = str(row["cluster"]).strip()
             reads = int(row["reads"])
 
-            # Nettoyage du génotype (ex: HBV_A2 -> A2)
-            m_geno = re.search(r"(?:HBV|HDV)[_-]?([A-Za-z0-9]+)", ref_name, re.IGNORECASE)
-            genotype = m_geno.group(1) if m_geno else re.sub(r"[^A-Za-z0-9]", "", ref_name)
+            # Extraction propre du génotype selon le virus
+            if "VHD" in virus_name or "HDV" in virus_name:
+                # VHD : Conservation complète de l'identifiant (ex: HDV1a, HDV1_NEW_SUBTYPE)
+                genotype = re.sub(r"[^A-Za-z0-9_.-]", "", ref_name)
+            else:
+                # VHB : Retrait du préfixe HBV_ (ex: HBV_A2 -> A2)
+                m_geno = re.search(r"HBV[_-]?([A-Za-z0-9]+)", ref_name, re.IGNORECASE)
+                genotype = m_geno.group(1) if m_geno else re.sub(r"[^A-Za-z0-9_.-]", "", ref_name)
 
             # Ratio par rapport au variant dominant (%)
             ratio_relative = (reads / max_reads) * 100.0
@@ -122,17 +128,23 @@ def main():
             if fraction_global < 5.0 and reads < 20:
                 continue
 
-            # Règle clinique
-            status = "VALIDATED" if ratio_relative >= cutoff else "REJECTED"
+            # # Règle clinique stricte : un variant n'est VALIDATED que s'il respecte le ratio ET compte au moins 20 reads
+            status = "VALIDATED" if (ratio_relative >= cutoff and reads >= 20) else "REJECTED"
 
             # Recherche du fichier consensus poli par Medaka
             possible_fasta = [
-                os.path.join(consensus_dir, sample_id, f"{sample_id}_Geno_{genotype}.fasta"),
                 os.path.join(consensus_dir, f"{sample_id}_Geno_{genotype}.fasta"),
+                os.path.join(consensus_dir, sample_id, f"{sample_id}_Geno_{genotype}.fasta"),
                 os.path.join(consensus_dir, f"{sample_id}.fasta")
             ]
 
             cons_file = next((p for p in possible_fasta if os.path.exists(p) and os.path.getsize(p) > 0), None)
+            
+            # Recherche de repli si le fichier est dans un sous-dossier non listé
+            if not cons_file:
+                matches = glob.glob(os.path.join(consensus_dir, "**", f"*{sample_id}*Geno_{genotype}*.fasta"), recursive=True)
+                if matches:
+                    cons_file = matches[0]
 
             seq_str = ""
             final_len = 0
@@ -148,7 +160,7 @@ def main():
                 if ref_record:
                     seq_str, flipped = ensure_plus_strand(seq_str, str(ref_record.seq))
                     if flipped:
-                        print(f"🔄 {sample_id}_{genotype} : réorienté sur le brin (+)")
+                        print(f" {sample_id}_{genotype} : réorienté sur le brin (+)")
                 seq_str = trim_concatemer(seq_str, expected_len)
                 final_len = len(seq_str)
 

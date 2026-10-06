@@ -55,30 +55,33 @@ process QC_ANALYSIS {
     path cov_files
     val min_length
     val max_length
+    val virus_name
+    val tech_name
 
     output:
-    path "RUN_METRICS_SUMMARY_TABLE.tsv"     , emit: metrics_table
+    path "RUN_METRICS_SUMMARY_TABLE.csv"     , emit: metrics_table
     path "RUN_READ_LENGTHS_DISTRIBUTION.pdf" , emit: lengths_pdf, optional: true
     path "matrix_table.csv"                  , emit: pairwise_csv, optional: true
     path "matrix_comp.png"                   , emit: pairwise_png, optional: true
 
     script:
     """
-    # Résolution des droits de cache pour Matplotlib et Fontconfig dans Singularity
     export MPLCONFIGDIR=\$(pwd)/.matplotlib_cache
     export XDG_CACHE_HOME=\$(pwd)/.fontconfig_cache
     mkdir -p \$MPLCONFIGDIR \$XDG_CACHE_HOME
 
-    echo "=== 2. Génération de la table de synthèse QC ==="
-    Rscript ${projectDir}/bin/10_qc_analysis.R "${summary_tsv}" "${min_length}" "${max_length}"
-
-    echo "=== 2.bis Génération du rapport PDF multipage (3 graphes par barcode) ==="
+    echo "=== 1. Rapport PDF des tailles (génère read_retention_metrics.tsv) ==="
     python3 ${projectDir}/bin/10_plot_read_lengths.py \\
         --work-dir . \\
         --min-len "${min_length}" \\
+        --virus "${virus_name}" \\
+        --tech "${tech_name}" \\
         --out-pdf "RUN_READ_LENGTHS_DISTRIBUTION.pdf"
 
-    echo "=== 3. Génération de la matrice pairwise & Heatmap ==="
+    echo "=== 2. Table de synthèse QC (intègre les rétentions) ==="
+    Rscript ${projectDir}/bin/10_qc_analysis.R "${summary_tsv}" "${min_length}" "${max_length}"
+
+    echo "=== 3. Matrice pairwise & Heatmap [0.0 - 7.5] ==="
     N_SEQ=\$(grep -c "^>" "${validated_consensus_fasta}" || echo 0)
     if [ "\$N_SEQ" -ge 2 ]; then
         mkdir -p distmatrix_out
@@ -97,8 +100,7 @@ process QC_ANALYSIS {
 
     stub:
     """
-    echo "=== [STUB] Génération des livrables QC ==="
-    touch "RUN_METRICS_SUMMARY_TABLE.tsv"
+    touch "RUN_METRICS_SUMMARY_TABLE.csv"
     touch "RUN_READ_LENGTHS_DISTRIBUTION.pdf"
     touch "matrix_table.csv"
     touch "matrix_comp.png"

@@ -61,7 +61,7 @@ process DEHOST_HOSTILE {
         if [ -n "\$alt_file" ]; then
             mv "\$alt_file" "${sample_id}_dehosted.fastq.gz"
         else
-            echo "❌ Fichier Hostile non généré pour ${sample_id}"
+            echo "Fichier Hostile non généré pour ${sample_id}"
             exit 1
         fi
     fi

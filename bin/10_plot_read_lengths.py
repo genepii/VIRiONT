@@ -47,7 +47,7 @@ def main():
 
     path_context = (args.work_dir + " " + " ".join(raw_files)).upper()
     virus = args.virus.upper() if args.virus else ("VHD" if ("VHD" in path_context or "HDV" in path_context) else "VHB")
-    
+
     if args.tech:
         tech = args.tech.upper()
     elif "POL" in path_context:
@@ -92,13 +92,23 @@ def main():
             filename = os.path.basename(raw_path)
             sample_id = re.sub(r"_merged\.fastq(\.gz)?$", "", filename)
 
+            # 1. Dehosted
             dehost_path = os.path.join(args.work_dir, f"{sample_id}_dehosted.fastq.gz")
             if not os.path.exists(dehost_path):
                 dehost_path = os.path.join(args.work_dir, f"{sample_id}_dehosted.fastq")
 
-            trimmed_path = os.path.join(args.work_dir, f"{sample_id}_trimmed.fastq.gz")
-            if not os.path.exists(trimmed_path):
-                trimmed_path = os.path.join(args.work_dir, f"{sample_id}_trimmed.fastq")
+            # 2. Trimmed / Primertrimmed (priorité à primertrimmed s'il existe)
+            trimmed_candidates = [
+                os.path.join(args.work_dir, f"{sample_id}_primertrimmed.fastq.gz"),
+                os.path.join(args.work_dir, f"{sample_id}_primertrimmed.fastq"),
+                os.path.join(args.work_dir, f"{sample_id}_trimmed.fastq.gz"),
+                os.path.join(args.work_dir, f"{sample_id}_trimmed.fastq"),
+            ]
+            trimmed_path = None
+            for cand in trimmed_candidates:
+                if os.path.exists(cand):
+                    trimmed_path = cand
+                    break
 
             paths = [raw_path, dehost_path, trimmed_path]
             data = [extract_lengths(p) for p in paths]
