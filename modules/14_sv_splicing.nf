@@ -26,9 +26,29 @@ process SV_SPLICING_VHB {
         samtools faidx "${canonical_ref}" 2>/dev/null || true
     fi
 
-    # 1. Appel des variants structuraux avec Sniffles2 (seuil minimal rehaussé à 5 % et 50 reads)
+    # 1. Conversion éphémère N -> D dédiée uniquement à Sniffles2
+    # Utilise samtools si disponible dans le conteneur, sinon fallback python/pysam natif
+    if command -v samtools >/dev/null 2>&1; then
+        samtools view -h "${bam}" | \
+            awk 'BEGIN{FS=OFS="\\t"} /^@/{print; next} {gsub(/N/, "D", \$6); print}' | \
+            samtools view -bS - > sniffles_input.bam
+        samtools index sniffles_input.bam
+    else
+        python3 -c "
+import pysam
+with pysam.AlignmentFile('${bam}', 'rb') as infile:
+    with pysam.AlignmentFile('sniffles_input.bam', 'wb', template=infile) as outfile:
+        for read in infile:
+            if read.cigartuples:
+                read.cigartuples = [(2 if op == 3 else op, length) for op, length in read.cigartuples]
+            outfile.write(read)
+pysam.index('sniffles_input.bam')
+"
+    fi
+
+    # 2. Appel des variants structuraux avec Sniffles2
     sniffles \\
-        --input "${bam}" \\
+        --input sniffles_input.bam \\
         --vcf "${sample_id}_${genotype}_sv.vcf" \\
         --reference "${canonical_ref}" \\
         --mosaic \\
@@ -42,18 +62,28 @@ process SV_SPLICING_VHB {
         --threads ${task.cpus} \\
         --mapq 15 2>&1 | tee "${sample_id}_${genotype}_sniffles.log"
 
-    # 2. Extraction stricte avec filtre anti-bruit (SUPPORT >= 50 reads et VAF >= 5.0%)
+    # Nettoyage immédiat du BAM temporaire
+    rm -f sniffles_input.bam sniffles_input.bam.bai
+
+    # 3. Extraction stricte avec double filtre anti-bruit et anti-artefact circulaire
+    # - Mot-clé PRECISE obligatoire ET exclusion absolue de IMPRECISE
+    # - Longueur maximale <= 2200 pb (élimination des chimères circulaires 3182 -> 1)
+    # - Fenêtre Sp1 (1200 - 1300 pb) adaptée aux génotypes B (1256 pb) et D (1223 pb)
+    # - SUPPORT >= 50 reads et VAF >= 5.0%
     awk -F'\\t' '
     BEGIN {
         OFS="\\t";
         print "SAMPLE", "GENOTYPE", "CHROM", "POS_START", "POS_END", "SPLICE_LEN", "SUPPORT_READS", "TOTAL_DEPTH", "VAF_PERCENT", "STATUS"
     }
-    !/^#/ && \$7 == "PASS" && \$8 ~ /SVTYPE=DEL/ && \$8 ~ /PRECISE/ {
+    !/^#/ && \$7 == "PASS" && \$8 ~ /SVTYPE=DEL/ && \$8 ~ /(^|;)PRECISE(;|\$)/ && \$8 !~ /IMPRECISE/ {
         svlen = "NA"; end = "NA"; supp = "NA"; af = "0";
         if (match(\$8, /SVLEN=-?[0-9]+/)) { svlen = substr(\$8, RSTART+6, RLENGTH-6); gsub("-", "", svlen) }
         if (match(\$8, /END=[0-9]+/))      { end = substr(\$8, RSTART+4, RLENGTH-4) }
         if (match(\$8, /SUPPORT=[0-9]+/))  { supp = substr(\$8, RSTART+8, RLENGTH-8) }
         if (match(\$8, /AF=[0-9.]+/))      { af = substr(\$8, RSTART+3, RLENGTH-3) }
+
+        # Élimination des artefacts circulaires géants (> 2200 pb sur un génome de 3.2 kb)
+        if ((svlen + 0) > 2200) next;
 
         split(\$9, fmt_keys, ":");
         split(\$10, fmt_vals, ":");
@@ -66,11 +96,11 @@ process SV_SPLICING_VHB {
         af_pct = sprintf("%.2f", af * 100);
 
         status = "ALTERNATIVE_SPLICING";
-        if (svlen >= 1200 && svlen <= 1300) {
+        if ((svlen + 0) >= 1200 && (svlen + 0) <= 1300) {
             status = "SP1_CANONICAL";
         }
 
-        # Filtre anti-bruit strict : VAF >= 5% et au moins 50 reads
+        # Filtre de confiance clinique
         if ((supp + 0) >= 50 && (af + 0) >= 0.05) {
             print "${sample_id}", "${genotype}", \$1, \$2, end, svlen, supp, total_cov, af_pct, status
         }

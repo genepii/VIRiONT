@@ -1,0 +1,43 @@
+Bootstrap: docker
+From: condaforge/mambaforge:latest
+
+%labels
+    Author alamiso
+    Version 3.0.1
+    Tool FLAIR
+
+%environment
+    export LC_ALL=C
+    export PATH="/opt/conda/bin:$PATH"
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        zlib1g-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libcurl4-openssl-dev \
+        procps \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Python 3.12 requis explicitement par FLAIR 3.0+
+    mamba install -y -c bioconda -c conda-forge \
+        python=3.12 \
+        samtools \
+        bedtools \
+        minimap2 \
+        r-base \
+        pip
+
+    # Installation de FLAIR v3.0.1
+    git clone https://github.com/BrooksLabUCSC/flair.git /opt/flair
+    cd /opt/flair
+    git checkout 573414c || true
+    pip install --no-cache-dir .
+
+%runscript
+    exec flair "$@"
+
+%test
+    flair --version

@@ -7,23 +7,31 @@ nextflow.enable.dsl=2
 process ALIGN_GENOTYPE_BAM {
     tag "${sample_id}_${genotype}"
     publishDir { "${params.outdir}/08_CANONICAL_BAM/${sample_id}/${genotype}" }, mode: 'copy'
+
     input:
     tuple val(sample_id), val(genotype), val(protocol), path(trimmed_fastq), path(consensus_fasta)
     path canonical_ref
     val virus_name
+
     output:
+    // 1. Pour QC Mosdepth & QC Analysis (map-ont STRICTEMENT INTACT)
     tuple val(sample_id), val(genotype), path("${sample_id}_${genotype}.sorted.bam"), path("${sample_id}_${genotype}.sorted.bam.bai"), emit: bam_bai
+
+    // 2. Pour Clair3 / VCF Calling & Mutations (map-ont STRICTEMENT INTACT)
     tuple val(sample_id), val(genotype), path("${sample_id}_${genotype}_canonical_ref.fasta"), path("${sample_id}_${genotype}.sorted.bam"), path("${sample_id}_${genotype}.sorted.bam.bai"), emit: for_vcf
+
+    // 3. Pour Module 12 Couverture (splice)
+    tuple val(sample_id), val(genotype), path("${sample_id}_${genotype}.coverage.sorted.bam"), path("${sample_id}_${genotype}.coverage.sorted.bam.bai"), emit: cov_bam_bai
+
+    // 4. Pour Sniffles2 / Module 14 UNIQUEMENT (splice)
+    tuple val(sample_id), val(genotype), path("${sample_id}_${genotype}_canonical_ref.fasta"), path("${sample_id}_${genotype}.coverage.sorted.bam"), path("${sample_id}_${genotype}.coverage.sorted.bam.bai"), emit: for_splicing
+
     script:
     """
     samtools faidx "${canonical_ref}"
     if [ "${virus_name}" = "VHB" ]; then
         # Extraction de la PREMIÈRE lettre A-J trouvée dans le génotype (identique
         # à la logique R de 13_search_mutation.R : gsub non-lettres + substr(1,1)).
-        # IMPORTANT : bash et R doivent utiliser EXACTEMENT la même règle
-        # d'extraction, sinon le VCF peut être calculé contre un génotype de
-        # référence différent de celui utilisé pour chercher les mutations,
-        # corrompant silencieusement les résultats.
         clean_gt=\$(echo "${genotype}" | grep -oE '[A-Ja-j]' | head -n1 | tr 'a-z' 'A-Z')
         if [ -z "\$clean_gt" ]; then
             echo "ERREUR : Impossible d'extraire une lettre de génotype A-J depuis '${genotype}' pour ${sample_id}." >&2
@@ -43,9 +51,19 @@ process ALIGN_GENOTYPE_BAM {
         fi
     fi
     samtools faidx "${sample_id}_${genotype}_canonical_ref.fasta"
+
+    # --- 1. BAM CANONIQUE (Clair3, QC Mosdepth, Mutations) - map-ont STRICTEMENT INTACT ---
+    echo "=== 1/2 Alignement standard map-ont (Clair3 / Mutations / QC) ==="
     minimap2 -ax map-ont -t ${task.cpus} "${sample_id}_${genotype}_canonical_ref.fasta" "${trimmed_fastq}" | \
         samtools view -bS -F 4 - | \
         samtools sort -o "${sample_id}_${genotype}.sorted.bam" -
     samtools index "${sample_id}_${genotype}.sorted.bam"
+
+    # --- 2. BAM COUVERTURE & SNIFFLES2 DÉDIÉ (Module 12 & Module 14) ---
+    echo "=== 2/2 Alignement spliced (-ax splice) pour couverture et Sniffles2 (${virus_name} ${protocol}) ==="
+    minimap2 -ax splice -t ${task.cpus} "${sample_id}_${genotype}_canonical_ref.fasta" "${trimmed_fastq}" | \
+        samtools view -bS -F 4 - | \
+        samtools sort -o "${sample_id}_${genotype}.coverage.sorted.bam" -
+    samtools index "${sample_id}_${genotype}.coverage.sorted.bam"
     """
 }

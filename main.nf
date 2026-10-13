@@ -349,7 +349,7 @@ workflow {
     PLOT_TREE(PHYLOGENY.out.tree_file)
 
     // 09. Profil de couverture
-    COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.bam_bai)
+    COMPUTE_BAM_COVERAGE(ALIGN_GENOTYPE_BAM.out.cov_bam_bai)
     PLOT_GLOBAL_COVERAGE(
         COMPUTE_BAM_COVERAGE.out.sample_cov.collect().ifEmpty([]),
         virus_name,
@@ -358,13 +358,12 @@ workflow {
 
     // 10. Détection des variants structuraux / épissage (VHB WG uniquement)
     if (virus_name == "VHB" && tech_name == "WG") {
-        SV_SPLICING_VHB(ALIGN_GENOTYPE_BAM.out.for_vcf)
+        SV_SPLICING_VHB(ALIGN_GENOTYPE_BAM.out.for_splicing)
 
         COLLECT_SPLICING_REPORTS(
             SV_SPLICING_VHB.out.table.map { sample_id, geno, tsv -> tsv }.collect().ifEmpty([])
         )
     }
-
     // 11. Export FastFinder / GLIMS
     FASTFINDER(
         CLINICAL_FILTER.out.summary_tsv,

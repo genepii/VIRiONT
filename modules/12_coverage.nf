@@ -18,9 +18,11 @@ process COMPUTE_BAM_COVERAGE {
 
     script:
     """
-    echo "=== Calcul de la couverture bedtools pour ${sample_id} - Génotype ${genotype} ==="
+    echo "=== Calcul de la couverture samtools pour ${sample_id} - Génotype ${genotype} ==="
     if [ -f "${bam}" ] && [ -s "${bam}" ]; then
-        bedtools genomecov -ibam "${bam}" -d -split | sed "s/\$/\t${sample_id}\t${genotype}\tMINION/" > "${sample_id}_${genotype}.cov"
+        # -aa  : toutes les positions (même à 0X)
+        # -d 0 : lève le plafond de profondeur par défaut (8000X)
+        samtools depth -aa -d 0 "${bam}" | sed "s/\$/\t${sample_id}\t${genotype}\tMINION/" > "${sample_id}_${genotype}.cov"
     else
         echo "WARNING: BAM vide ou inexistant pour ${sample_id} - ${genotype}"
         touch "${sample_id}_${genotype}.cov"

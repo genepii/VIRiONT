@@ -255,7 +255,7 @@ cat(sprintf("[13_search_mutation] %d allèles retenus sur %d positions.\n",
             nrow(table_vcf), length(unique(table_vcf$REF_POS))))
 
 # ==============================================================================
-# 4. Criblage par Codon et par Nucléotide (Résolution fine Majo / Mino)
+# 4. Criblage par Codon et par Nucléotide (Résolution fine Majo >80% / Mino)
 # ==============================================================================
 searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
   mut_sub <- mut_table[grepl(pattern_region, mut_table$Region, ignore.case = TRUE), ]
@@ -280,16 +280,18 @@ searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
     if (nrow(hit_vcf) > 0) {
       ref_aa <- if (nchar(codon_ref) == 3) getAA(codon_ref) else "X"
 
-      # Reconstitution du codon majoritaire complet composite
+      # ------------------------------------------------------------------------
+      # Reconstitution du codon dominant : UNIQUEMENT pour les bases > 80%
+      # ------------------------------------------------------------------------
       codon_majo_composite <- codon_ref
       if (nchar(codon_ref) == 3) {
-        majo_hits <- hit_vcf[hit_vcf$base_status == "majo", ]
-        if (nrow(majo_hits) > 0) {
-          for (m in seq_len(nrow(majo_hits))) {
-            pos_m <- majo_hits$REF_POS[m]
-            if (pos_m == p1) substr(codon_majo_composite, 1, 1) <- majo_hits$base[m]
-            if (pos_m == p2) substr(codon_majo_composite, 2, 2) <- majo_hits$base[m]
-            if (pos_m == p3) substr(codon_majo_composite, 3, 3) <- majo_hits$base[m]
+        majo_80_hits <- hit_vcf[hit_vcf$base_status == "majo" & hit_vcf$freq > 80.0, ]
+        if (nrow(majo_80_hits) > 0) {
+          for (m in seq_len(nrow(majo_80_hits))) {
+            pos_m <- majo_80_hits$REF_POS[m]
+            if (pos_m == p1) substr(codon_majo_composite, 1, 1) <- majo_80_hits$base[m]
+            if (pos_m == p2) substr(codon_majo_composite, 2, 2) <- majo_80_hits$base[m]
+            if (pos_m == p3) substr(codon_majo_composite, 3, 3) <- majo_80_hits$base[m]
           }
         }
       }
@@ -301,26 +303,27 @@ searchMUT_CODON <- function(vcf, mut_table, pattern_region, gene_pfx) {
         nt_has_mutated <- (r_row$base != r_row$REF)
 
         if (nchar(codon_ref) == 3) {
-          if (r_row$base_status == "majo") {
+          # Règle clinique : interprétation du codon complet UNIQUEMENT si majoritaire > 80%
+          is_majo_strict <- (r_row$base_status == "majo" && r_row$freq > 80.0)
+
+          if (is_majo_strict) {
+            # Cas 1 : Mutation clonale dominante certaine (> 80%)
             alt_aa   <- majo_aa
             mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
             warn     <- ifelse(ref_aa != alt_aa && nt_has_mutated, "alerte!", "OK")
           } else {
-            # Variant minoritaire : greffé sur le fond majoritaire composite
-            codon_mino <- codon_majo_composite
-            if (pt == "NUC1_P3") substr(codon_mino, 1, 1) <- r_row$base
-            if (pt == "NUC2_P3") substr(codon_mino, 2, 2) <- r_row$base
-            if (pt == "NUC3_P3") substr(codon_mino, 3, 3) <- r_row$base
-            
-            mino_aa  <- getAA(codon_mino)
-            alt_aa   <- mino_aa
+            # Cas 2 : Minoritaire ou majoritaire modéré (<= 80%)
+            # Évaluation individuelle (base mutée sur fond dominant >80%)
+            codon_indiv <- codon_majo_composite
+            if (pt == "NUC1_P3") substr(codon_indiv, 1, 1) <- r_row$base
+            if (pt == "NUC2_P3") substr(codon_indiv, 2, 2) <- r_row$base
+            if (pt == "NUC3_P3") substr(codon_indiv, 3, 3) <- r_row$base
+
+            alt_aa   <- getAA(codon_indiv)
             mut_name <- paste0(gene_pfx, ref_aa, pos_eco, alt_aa)
 
-            # Règle de cohérence pour variant minoritaire :
-            # 1. mino_aa == majo_aa -> synonyme de la souche majeure dominante -> OK
-            # 2. mino_aa == ref_aa  -> retour à la séquence sauvage de référence -> OK
-            # 3. Alerte uniquement s'il introduit un tiers acide aminé
-            if (nt_has_mutated && mino_aa != ref_aa && mino_aa != majo_aa) {
+            # Règle demandée : si le nucléotide a muté et freq <= 80% -> TOUJOURS "alerte!"
+            if (nt_has_mutated) {
               warn <- "alerte!"
             } else {
               warn <- "OK"

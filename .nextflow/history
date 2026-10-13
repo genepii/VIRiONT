@@ -15,4 +15,16 @@
 2026-10-06 14:09:49	2m 6s	amazing_lavoisier	OK	40847ad3cce211686034bde89ab96b9e	0cd876f2-987c-4ffb-b23d-cc7a487e1a58	nextflow run main.nf -resume
 2026-10-06 14:24:19	5m 31s	mad_sax	ERR	2247b23255e7db9690180b1654b96652	a1422421-cf27-456f-839a-d9515172da78	nextflow run main.nf
 2026-10-06 14:42:49	2m 3s	exotic_bassi	OK	2247b23255e7db9690180b1654b96652	a1422421-cf27-456f-839a-d9515172da78	nextflow run main.nf -resume
-2026-10-06 15:26:55	-	shrivelled_bhaskara	-	2247b23255e7db9690180b1654b96652	e9b025e6-1d55-4395-a7db-080a05dead0e	nextflow run main.nf
+2026-10-06 15:26:55	7m 19s	shrivelled_bhaskara	OK	2247b23255e7db9690180b1654b96652	e9b025e6-1d55-4395-a7db-080a05dead0e	nextflow run main.nf
+2026-10-06 15:52:13	3.2s	clever_descartes	OK	2247b23255e7db9690180b1654b96652	e9b025e6-1d55-4395-a7db-080a05dead0e	nextflow run main.nf -resume
+2026-10-06 15:59:42	8m 58s	modest_mirzakhani	OK	2247b23255e7db9690180b1654b96652	c087da16-b812-414a-8f44-690626691bbc	nextflow run main.nf
+2026-10-06 16:55:18	9m 48s	shrivelled_kimura	OK	2247b23255e7db9690180b1654b96652	d08307df-7fe8-4c1d-932c-9e5d5a9f61df	nextflow run main.nf
+2026-10-06 17:14:58	21.9s	suspicious_curran	OK	2247b23255e7db9690180b1654b96652	d08307df-7fe8-4c1d-932c-9e5d5a9f61df	nextflow run main.nf -resume
+2026-10-07 10:08:48	-	awesome_carson	-	a7932a207a929bc3e7ee2965ec460232	175fa5eb-7a60-4ac8-963a-e9d32ba51329	nextflow run main.nf
+2026-10-07 10:10:41	11m 14s	fervent_torricelli	OK	a7932a207a929bc3e7ee2965ec460232	d61e84cc-4329-4ec9-8dd0-7db65dc35bf4	nextflow run main.nf
+2026-10-07 10:47:48	19.5s	zen_aryabhata	OK	a7932a207a929bc3e7ee2965ec460232	d61e84cc-4329-4ec9-8dd0-7db65dc35bf4	nextflow run main.nf -resume
+2026-10-07 11:00:22	10m 6s	high_leakey	OK	c7b94c6b4dd59489f6f534607e7e8a7c	126e42d5-6053-4877-a665-5758f3c04ee8	nextflow run main.nf
+2026-10-07 11:40:26	8m 18s	drunk_wing	OK	c7b94c6b4dd59489f6f534607e7e8a7c	3a22d8a2-a96a-4aa3-90b0-608465684965	nextflow run main.nf
+2026-10-07 14:59:51	35m 37s	hungry_crick	OK	c7b94c6b4dd59489f6f534607e7e8a7c	1a2df659-1bcd-48aa-8508-298ad434937a	nextflow run main.nf
+2026-10-08 15:57:11	10m 17s	adoring_koch	OK	c7b94c6b4dd59489f6f534607e7e8a7c	944699cb-4fa0-44db-b886-bd530a1801e9	nextflow run main.nf
+2026-10-08 16:30:35	11m 26s	lethal_archimedes	OK	c7b94c6b4dd59489f6f534607e7e8a7c	afe819ea-0e2e-446b-9ff8-52c23a7e1114	nextflow run main.nf
