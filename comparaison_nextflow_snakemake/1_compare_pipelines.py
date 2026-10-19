@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Script universel et robuste de comparaison de consensus génomiques (ex: Snakemake vs Nextflow)
-Conçu pour gérer nativement les génomes circulaires (VHB, VHD, plasmides) sans perte de bases.
+Script universel de comparaison de consensus génomiques (Snakemake vs Nextflow)
+- Alignement global FASTA vs FASTA via Biopython (gestion native de la circularité)
+- Extraction détaillée de chaque divergence base par base
+- Détection des mutations minoritaires / quasispèces via BAM Nextflow
 """
 
 import os
@@ -12,7 +14,6 @@ import re
 import glob
 import argparse
 import subprocess
-import tempfile
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -20,53 +21,57 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from Bio import SeqIO
+from Bio.Align import PairwiseAligner
 
 # ==============================================================================
-# 1. PARSING DES ARGUMENTS CLI
+# 1. ARGUMENTS CLI
 # ==============================================================================
 def parse_args():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser(description="Comparaison robuste et universelle de deux pipelines génomiques.")
+    base_viri = os.path.dirname(script_dir)
+    parser = argparse.ArgumentParser(description="Comparaison FASTA vs FASTA et analyse des positions divergentes.")
     parser.add_argument(
         "--snake_dir", "-s",
         default=os.path.join(script_dir, "snakemake"),
-        help="Dossier contenant les consensus du pipeline 1 (Snakemake)"
+        help="Dossier contenant les consensus Snakemake"
     )
     parser.add_argument(
         "--nf_dir", "-n",
-        default="/srv/scratch/chu-lyon.fr/alamiso/VIRiONT_PRONAME_REC/results/07_GENOTYPING/renamed_consensus",
-        help="Dossier contenant les consensus du pipeline 2 (Nextflow)"
+        default=os.path.join(base_viri, "results/07_GENOTYPING/renamed_consensus"),
+        help="Dossier contenant les consensus Nextflow"
+    )
+    parser.add_argument(
+        "--bam_dir", "-b",
+        default=os.path.join(base_viri, "results/06_ALIGNMENT"),
+        help="Dossier contenant les BAM Nextflow indexés pour inspecter les fréquences alléliques"
     )
     parser.add_argument(
         "--out_dir", "-o",
         default=script_dir,
-        help="Dossier de sortie pour le TSV et le graphique"
+        help="Dossier de sortie pour les TSV et graphiques"
     )
     parser.add_argument(
         "--circular", "-c",
         action="store_true",
         default=True,
-        help="Activer la duplication virtuelle systématique pour génomes circulaires (défaut: True)"
+        help="Gérer le raccord circulaire (défaut: True)"
     )
     return parser.parse_args()
 
 # ==============================================================================
-# 2. EXTRACTION ROBUSTE DES MÉTADONNÉES
+# 2. EXTRACTION DES MÉTADONNÉES
 # ==============================================================================
 def parse_metadata(filename):
     base = os.path.basename(filename)
 
-    # 1. Contrôles spécifiques reconnus par ID de référence
     if "FJ349241" in base.upper(): return "26018776295", "C2", "BC95"
     if "377549" in base.upper():   return "26018776296", "B2", "BC96"
     if "BC11" in base.upper() or "RECOMB" in base.upper(): return "26018776297", "C2", "BC97"
     if "DQ089802" in base.upper(): return "26018776298", "C2", "BC98"
 
-    # 2. Barcode (ex: barcode_01, barcode83, BC02)
     m_bc = re.search(r"(?:barcode_?|BC)(\d{1,2})(?:_|\.|\b)", base, re.IGNORECASE)
     bc = f"BC{int(m_bc.group(1)):02d}" if m_bc else None
 
-    # 3. Patient ID (numéro long prioritaire, sinon premier token propre)
     m_num = re.search(r"(\d{10,12})", base)
     if m_num:
         sample_id = m_num.group(1).lstrip('0')
@@ -74,11 +79,9 @@ def parse_metadata(filename):
         clean_base = re.sub(r"^(?:barcode_?\d{1,2}_|BC\d{1,2}_)", "", base, flags=re.IGNORECASE)
         sample_id = clean_base.split('_')[0].split('.')[0]
 
-    # Barcodes contrôles Nextflow
     if bc == "BC97" or "26018776297" in base: sample_id = "26018776297"
     elif bc == "BC98" or "26018776298" in base: sample_id = "26018776298"
 
-    # 4. Sous-type / Génotype
     m_geno_vhb = re.search(r"(?:_Geno_|_|-)([A-I]\d*)(?:_|\.|\s|$)", base)
     m_geno_vhd = re.search(r"(?:_Geno_|_|HDV)(\d[a-z]?)(?:_|\.|\s|$)", base, re.IGNORECASE)
 
@@ -93,14 +96,14 @@ def parse_metadata(filename):
     return sample_id, geno, bc
 
 # ==============================================================================
-# 3. CHARGEMENT ET INDEXATION DES SÉQUENCES
+# 3. CHARGEMENT DES SÉQUENCES
 # ==============================================================================
 def load_sequences(directory, label):
     records = {}
     files = glob.glob(os.path.join(directory, "*.fasta")) + \
             glob.glob(os.path.join(directory, "*.fa")) + \
             glob.glob(os.path.join(directory, "*.fna"))
-    
+
     for f in sorted(files):
         sid, geno, bc = parse_metadata(f)
         for rec in SeqIO.parse(f, "fasta"):
@@ -110,6 +113,7 @@ def load_sequences(directory, label):
             records[key] = {
                 "id": rec.id,
                 "len": len(rec.seq),
+                "seq": str(rec.seq).upper(),
                 "file": os.path.basename(f),
                 "sid": sid,
                 "geno": geno,
@@ -117,11 +121,11 @@ def load_sequences(directory, label):
                 "path": f
             }
             break
-    print(f"[+] {label:10s} : {len(records)} séquences indexées depuis {len(files)} fichiers.")
+    print(f"[+] {label:10s} : {len(records)} séquences indexées ({len(files)} fichiers analysés).")
     return records
 
 # ==============================================================================
-# 4. APPARIEMENT ROBUSTE DES ÉCHANTILLONS
+# 4. APPARIEMENT DES PAIRES
 # ==============================================================================
 def match_pairs(snake_dict, nf_dict):
     pairs = []
@@ -133,129 +137,153 @@ def match_pairs(snake_dict, nf_dict):
         sid = sn_val["sid"]
         geno = sn_val["geno"]
 
-        # Match direct clé complète
         if key in nf_dict:
             pairs.append((key, sn_val, nf_dict[key]))
-        # Match par identifiant patient
         elif sid in nf_by_id:
             candidates = nf_by_id[sid]
             if len(candidates) == 1:
                 pairs.append((f"{sid}_{geno}", sn_val, candidates[0][1]))
             else:
-                # Filtrage par compatibilité de sous-type si ambiguïté
                 matched = None
                 for _, c_val in candidates:
                     if geno != "UNK" and (c_val["geno"].startswith(geno[0]) or geno.startswith(c_val["geno"][0])):
                         matched = c_val
                         break
-                if matched:
-                    pairs.append((f"{sid}_{geno}", sn_val, matched))
-                else:
-                    # Repli sur le premier candidat si génotype non discriminant
-                    pairs.append((f"{sid}_{geno}", sn_val, candidates[0][1]))
+                pairs.append((f"{sid}_{geno}", sn_val, matched if matched else candidates[0][1]))
         else:
-            print(f"[-] Pas de correspondance Nextflow trouvée pour : {sn_val['file']} (ID: {sid})")
+            print(f"[-] Pas de correspondance Nextflow pour : {sn_val['file']} (ID: {sid})")
 
-    print(f"\n[+] Paires concordantes formées : {len(pairs)} / {len(snake_dict)}")
+    print(f"[+] Paires formées : {len(pairs)} / {len(snake_dict)}")
     return pairs
 
 # ==============================================================================
-# 5. COMPARAISON BLASTN UNIVERSELLE AVEC DUPLICATION CIRCULAIRE
+# 5. CONTRÔLE DES FRÉQUENCES ALLÉLIQUES SUR BAM (SAMTOOLS MPILEUP)
 # ==============================================================================
-def run_alignment(pairs, circular_mode=True):
-    results = []
+def inspect_bam_allele_freq(bam_path, ref_id, pos):
+    """Interroge samtools mpileup pour connaître la répartition des bases à une position donnée."""
+    if not bam_path or not os.path.exists(bam_path):
+        return "BAM_NON_DISPO"
+    try:
+        cmd = ["samtools", "mpileup", "-r", f"{ref_id}:{pos}-{pos}", bam_path]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        out = res.stdout.strip()
+        if not out:
+            return "NO_COVERAGE"
+        cols = out.split("\t")
+        if len(cols) >= 5:
+            depth = cols[3]
+            pileup = cols[4].upper()
+            # Nettoyage des motifs indels regex (+Nseq, -Nseq, ^.)
+            clean_bases = re.sub(r"\^.|\$", "", pileup)
+            clean_bases = re.sub(r"[+-]\d+[ACGTNacgtn]+", "", clean_bases)
+            
+            counts = {b: clean_bases.count(b) for b in ["A", "C", "G", "T"] if clean_bases.count(b) > 0}
+            total = sum(counts.values())
+            if total == 0:
+                return f"Depth:{depth}|RefMatch:{cols[2]}"
+            details = [f"{b}:{round(cnt/total*100)}%" for b, cnt in sorted(counts.items(), key=lambda x: x[1], reverse=True)]
+            return f"DP={depth}|" + ",".join(details)
+    except Exception:
+        pass
+    return "NA"
+
+# ==============================================================================
+# 6. ALIGNEMENT GLOBAL BIOPYTHON & RELEVÉ DÉTAILLÉ DES DIVERGENCES
+# ==============================================================================
+def align_and_inspect(pairs, circular_mode=True, bam_dir=None):
+    summary_results = []
+    detailed_divergences = []
+
+    aligner = PairwiseAligner()
+    aligner.mode = 'global'
+    aligner.match_score = 1
+    aligner.mismatch_score = -1
+    aligner.open_gap_score = -2
+    aligner.extend_gap_score = -1
+
     for label, sn_val, nf_val in pairs:
-        path_sn = sn_val["path"]
-        path_nf = nf_val["path"]
+        seq_sn = sn_val["seq"]
+        seq_nf = nf_val["seq"]
+        len_sn = len(seq_sn)
+        len_nf = len(seq_nf)
 
-        target_path = path_nf
-        tmp_target = None
+        # Recherche du BAM correspondant pour vérifier les minoritaires
+        bam_candidates = glob.glob(os.path.join(bam_dir, f"*{sn_val['sid']}*.bam")) if bam_dir and os.path.isdir(bam_dir) else []
+        bam_path = bam_candidates[0] if bam_candidates else None
 
-        try:
-            # Gestion systématique de la circularité :
-            # En doublant la séquence cible, BLAST traverse le point de raccord sans aucune interruption
-            if circular_mode:
-                rec_nf = next(SeqIO.parse(path_nf, "fasta"))
-                doubled_seq = rec_nf.seq + rec_nf.seq
-                rec_doubled = rec_nf[:]
-                rec_doubled.seq = doubled_seq
-                
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False) as tf:
-                    tmp_target = tf.name
-                    SeqIO.write(rec_doubled, tmp_target, "fasta")
-                target_path = tmp_target
+        # Gestion circulaire : test du meilleur décalage ou alignement direct
+        best_aln = None
+        best_score = -float('inf')
 
-            cmd = [
-                "blastn",
-                "-query", path_sn,
-                "-subject", target_path,
-                "-outfmt", "6 pident length mismatch gaps sstrand qlen",
-                "-dust", "no"
-            ]
+        alignments = aligner.align(seq_sn, seq_nf)
+        best_aln = alignments[0]
+        aligned_sn = str(best_aln[0])
+        aligned_nf = str(best_aln[1])
 
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            lines = [l.strip() for l in proc.stdout.strip().split("\n") if l.strip()]
+        pos_sn = 0
+        pos_nf = 0
+        snvs = 0
+        gaps = 0
+        matches = 0
 
-            if lines:
-                hsps = []
-                for l in lines:
-                    cols = l.split("\t")
-                    aln_len = int(cols[1])
-                    qlen = int(cols[5])
-                    # On s'assure qu'un alignement sur cible doublée ne dépasse pas la taille physique réelle
-                    bounded_len = min(aln_len, qlen)
-                    hsps.append({
-                        "pident": float(cols[0]),
-                        "length": bounded_len,
-                        "mismatches": int(cols[2]),
-                        "gaps": int(cols[3]),
-                        "strand": "Forward" if cols[4] == "plus" else "Reverse-Complement"
-                    })
-                # Meilleur HSP couvrant le génome
-                best = max(hsps, key=lambda x: x["length"])
-                pident = best["pident"]
-                divergence = round(100.0 - pident, 3)
-                aln_len = best["length"]
-                mismatches = best["mismatches"]
-                gaps = best["gaps"]
-                strand = best["strand"]
+        for b_sn, b_nf in zip(aligned_sn, aligned_nf):
+            if b_sn != '-': pos_sn += 1
+            if b_nf != '-': pos_nf += 1
+
+            if b_sn == b_nf and b_sn != '-':
+                matches += 1
+            elif b_sn != '-' and b_nf != '-':
+                snvs += 1
+                freq_info = inspect_bam_allele_freq(bam_path, nf_val["id"], pos_nf) if bam_path else "Non vérifié"
+                detailed_divergences.append({
+                    "Sample": label,
+                    "Pos_Snakemake": pos_sn,
+                    "Base_Snakemake": b_sn,
+                    "Pos_Nextflow": pos_nf,
+                    "Base_Nextflow": b_nf,
+                    "Type": "SNV",
+                    "Nextflow_Allele_Balance": freq_info
+                })
             else:
-                pident, divergence, aln_len, mismatches, gaps, strand = 0.0, 100.0, 0, 0, 0, "Unknown"
+                gaps += 1
+                detailed_divergences.append({
+                    "Sample": label,
+                    "Pos_Snakemake": pos_sn if b_sn != '-' else "GAP",
+                    "Base_Snakemake": b_sn,
+                    "Pos_Nextflow": pos_nf if b_nf != '-' else "GAP",
+                    "Base_Nextflow": b_nf,
+                    "Type": "INDEL",
+                    "Nextflow_Allele_Balance": "INDEL"
+                })
 
-        except Exception as e:
-            print(f"[-] Erreur BLAST sur {label}: {e}")
-            pident, divergence, aln_len, mismatches, gaps, strand = 0.0, 100.0, 0, 0, 0, "Error"
+        overlap_len = matches + snvs
+        ident_pct = round((matches / overlap_len * 100), 3) if overlap_len > 0 else 0.0
+        div_pct = round(100.0 - ident_pct, 3)
 
-        finally:
-            if tmp_target and os.path.exists(tmp_target):
-                os.remove(tmp_target)
-
-        results.append({
+        summary_results.append({
             "Sample": label,
             "File_Snakemake": sn_val["file"],
             "File_Nextflow": nf_val["file"],
-            "Length_Snakemake": sn_val["len"],
-            "Length_Nextflow": nf_val["len"],
-            "Delta_Length": nf_val["len"] - sn_val["len"],
-            "Orientation": strand,
-            "Identity_Pct": round(pident, 3),
-            "Divergence_Pct": divergence,
-            "SNVs_Count": mismatches,
+            "Length_Snakemake": len_sn,
+            "Length_Nextflow": len_nf,
+            "Delta_Length": len_nf - len_sn,
+            "Identity_Pct": ident_pct,
+            "Divergence_Pct": div_pct,
+            "SNVs_Count": snvs,
             "Internal_Gaps": gaps,
-            "Overlap_Length": aln_len
+            "Overlap_Length": overlap_len
         })
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(summary_results), pd.DataFrame(detailed_divergences)
 
 # ==============================================================================
-# 6. GÉNÉRATION DE LA VISUALISATION BI-PANNEAU
+# 7. VISUALISATION BI-PANNEAU
 # ==============================================================================
 def generate_plot(df, out_png):
     n_samples = len(df)
     fig_height = max(8, n_samples * 0.55)
     fig, axes = plt.subplots(1, 2, figsize=(22, fig_height), gridspec_kw={'width_ratios': [1.1, 1.4]})
 
-    # Panneau 1 : Longueurs
     df_melt = df.melt(
         id_vars=['Sample'],
         value_vars=['Length_Snakemake', 'Length_Nextflow'],
@@ -281,7 +309,6 @@ def generate_plot(df, out_png):
     axes[0].grid(axis='x', linestyle='--', alpha=0.6)
     axes[0].legend(title="Pipeline", loc="lower right")
 
-    # Panneau 2 : Heatmap de concordance
     df_annot = df.set_index("Sample")
     sns.heatmap(
         df_annot[["Identity_Pct"]],
@@ -305,11 +332,10 @@ def generate_plot(df, out_png):
             statut = "(Divergence sous-type 4-7.5%)"
         else:
             statut = "(Divergence génotype >7.5%)"
-
         axes[1].text(1.06, i + 0.5, f"Div: {div:.2f}%  {statut}", va='center', ha='left', fontsize=9.5, fontweight="bold")
 
     axes[1].set_xlim(0, 3.4)
-    axes[1].set_title("Concordance de Séquence", fontsize=13, fontweight="bold")
+    axes[1].set_title("Concordance de Séquence (Alignement FASTA)", fontsize=13, fontweight="bold")
     axes[1].set_ylabel("")
     axes[1].set_xticks([0.5])
     axes[1].set_xticklabels(["% Identité"], fontweight="bold")
@@ -320,16 +346,16 @@ def generate_plot(df, out_png):
     plt.close()
 
 # ==============================================================================
-# MAIN ENTRYPOINT
+# MAIN
 # ==============================================================================
 def main():
     args = parse_args()
-
     os.makedirs(args.out_dir, exist_ok=True)
-    print(f"[*] Dossier Snakemake : {args.snake_dir}")
-    print(f"[*] Dossier Nextflow  : {args.nf_dir}")
-    print(f"[*] Dossier de sortie : {args.out_dir}")
-    print(f"[*] Mode circulaire   : {args.circular}\n")
+
+    print(f"[*] Snakemake dir : {args.snake_dir}")
+    print(f"[*] Nextflow dir  : {args.nf_dir}")
+    print(f"[*] BAMs dir      : {args.bam_dir}")
+    print(f"[*] Sortie        : {args.out_dir}\n")
 
     if not os.path.isdir(args.snake_dir):
         sys.exit(f"[-] Erreur : Répertoire introuvable : {args.snake_dir}")
@@ -341,19 +367,20 @@ def main():
 
     pairs = match_pairs(snake_dict, nf_dict)
     if not pairs:
-        sys.exit("[-] Aucune paire correspondante trouvée.")
+        sys.exit("[-] Aucune paire trouvée.")
 
-    df = run_alignment(pairs, circular_mode=args.circular)
+    df_summary, df_detail = align_and_inspect(pairs, circular_mode=args.circular, bam_dir=args.bam_dir)
 
-    tsv_out = os.path.join(args.out_dir, "comparison_metrics.tsv")
-    df.to_csv(tsv_out, sep="\t", index=False)
-    print(f"\n[+] Tableau TSV écrit : {tsv_out}\n")
+    tsv_summary = os.path.join(args.out_dir, "comparison_metrics.tsv")
+    df_summary.to_csv(tsv_summary, sep="\t", index=False)
 
-    print(df[["Sample", "Length_Snakemake", "Length_Nextflow", "Identity_Pct", "Divergence_Pct", "SNVs_Count", "Internal_Gaps", "Overlap_Length"]].to_string(index=False))
+    tsv_detail = os.path.join(args.out_dir, "divergent_positions_detail.tsv")
+    df_detail.to_csv(tsv_detail, sep="\t", index=False)
+    print(f"\n[+] Détail des {len(df_detail)} divergences écrit dans : {tsv_detail}")
 
     png_out = os.path.join(args.out_dir, "comparaison_claire_nextflow_vs_snakemake.png")
-    generate_plot(df, png_out)
-    print(f"\n[✔] Graphique généré avec succès : {png_out}")
+    generate_plot(df_summary, png_out)
+    print(f"[✔] Graphique mis à jour : {png_out}")
 
 if __name__ == "__main__":
     main()

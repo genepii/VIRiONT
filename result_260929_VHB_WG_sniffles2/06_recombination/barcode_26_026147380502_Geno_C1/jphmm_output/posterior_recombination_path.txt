@@ -1,0 +1,12 @@
+# Output of the 'path' defined by the posterior probabilities of the query sequence(s). 
+#
+#   format: 
+#   sequence_name 
+#   start_position	 end_position	 subtype with highest posterior prob 
+#
+# output based on raw sequence positions 
+# of the following sequence(s): 
+
+>barcode_26_026147380502_Geno_C1
+1	3215	C
+

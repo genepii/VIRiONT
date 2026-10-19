@@ -1,0 +1,2 @@
+REFERENCE;REF_POS;REF;total_count;base_status;base;count;NUM_CODON;POS_TYPE;REF_AA;ALT_AA;Mutation_name;freq;warning;GENE;GENOTYPE
+GTC;990;GCATGGGAGGTTGGTCTTC;11142;majo;G;5805;1;IN_FRAME_DEL;INDEL;-6AA;preS1_del6AA_pos1;52.1;alerte! INDEL;Domaine PreS1;GTC

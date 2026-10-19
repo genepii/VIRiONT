@@ -1,0 +1,9 @@
+# Output of the jpHMM. 
+#
+# Predicted recombination for the following query sequences:
+#
+# predicted subtypes for sequence 'barcode_27_026147296601_Geno_B4': 
+barcode_27_026147296601_Geno_B4	jpHMM	B	0	1836	.	+	.
+barcode_27_026147296601_Geno_B4	jpHMM	C	1837	2240	.	+	.
+barcode_27_026147296601_Geno_B4	jpHMM	B	2241	3214	.	+	.
+

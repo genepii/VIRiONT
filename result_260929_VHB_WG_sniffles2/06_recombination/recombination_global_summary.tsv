@@ -1,0 +1,7 @@
+sample_id	is_recombinant	subtypes	breakpoints
+barcode_25_026132236103_Geno_D1	NO	D	D:1-3182
+barcode_26_026147380502_Geno_C1	NO	C	C:1-3215
+barcode_27_026147296601_Geno_B4	YES	B+C	B:1-1837;C:1838-2241;B:2242-3215
+barcode_28_026114835802_Geno_D7	NO	D	D:1-3182
+barcode_30_026117394802_Geno_D7	NO	D	D:1-3182
+barcode_31_TPOSP034_Geno_D3	NO	D	D:1-3182

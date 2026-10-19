@@ -1,0 +1,17 @@
+# Output of the jpHMM. 
+#
+#   chosen parameters: 
+#	jump probability: 	1e-07
+#
+#   format: 
+#   sequence_name (bw=beam-width)
+#   start_position	 end_position	 predicted_subtype 
+#
+# predicted recombination with breakpoints based on raw sequence positions 
+# of the following sequence(s): 
+
+>barcode_27_026147296601_Geno_B4 (bw=1e-25)
+1	1837	B
+1838	2241	C
+2242	3215	B
+

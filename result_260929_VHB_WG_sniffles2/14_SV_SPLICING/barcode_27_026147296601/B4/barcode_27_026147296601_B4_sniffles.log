@@ -1,0 +1,18 @@
+Running Sniffles2, build 2.2
+  Run Mode: call_sample
+  Start on: 2026/10/13 15:41:32
+  Working dir: /srv/scratch/chu-lyon.fr/alamiso/nxf_work/ea/6b66be98eca5172f4c945a541fd159
+  Used command: /usr/local/bin/sniffles --input sniffles_input.bam --vcf barcode_27_026147296601_B4_sv.vcf --reference barcode_27_026147296601_B4_canonical_ref.fasta --mosaic --mosaic-af-min 0.05 --mosaic-af-max 1.0 --mosaic-include-germline --mosaic-qc-coverage-max-change-frac -1 --min-alignment-length 100 --minsupport 50 --minsvlen 150 --threads 4 --mapq 15
+==============================
+Opening for reading: sniffles_input.bam
+Opening for reading: barcode_27_026147296601_B4_canonical_ref.fasta
+Info: Fasta index for barcode_27_026147296601_B4_canonical_ref.fasta not found. Generating with pysam.faidx (this may take a while)
+Opening for writing: barcode_27_026147296601_B4_sv.vcf (single-sample, sorted)
+
+Analyzing 67318 alignments total...
+
+67318/67318 alignments processed (100%, 24963/s); 1/1 tasks done; parallel 0/4; 2 SVs. 
+Took 2.70s.
+
+Done.
+Wrote 2 called SVs to barcode_27_026147296601_B4_sv.vcf (single-sample, sorted)

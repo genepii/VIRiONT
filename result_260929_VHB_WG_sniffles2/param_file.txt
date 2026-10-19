@@ -1,0 +1,21 @@
+######################
+#### PARAMS USED #####
+######################
+Target / Mode                           : VHB (WG)
+Data repository                         : fastq_pass/
+Result repository                       : results/
+Reference DB (Genotyping)               : HBV_subtype_WG.fasta
+Canonical alignment reference           : HBV_genotype_wPrimer.fasta
+Mutation tables repository              : mutation_table/
+Read minlength                          : 1000 bp
+Read maxlength                          : 5000 bp
+Quality filtering (Q-score)             : 12
+Min reads threshold                     : 20
+Max reads subsampling                   : 0
+Multi-infection cutoff                  : 30.0%
+Medaka model used                       : r1041_e82_400bps_sup_v5.2.0
+Clair3 model used                       : r1041_e82_400bps_sup_v520
+Hostile index used                      : human-t2t-hla.rs-viral-202401_ml-phage-202401
+Nextflow engine version                 : 26.04.6
+Pipeline execution run name             : compassionate_hamilton
+Command line executed                   : nextflow run main.nf -resume

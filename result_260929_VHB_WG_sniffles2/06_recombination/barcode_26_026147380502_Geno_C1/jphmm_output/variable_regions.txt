@@ -1,0 +1,9 @@
+# Output of the variable regions
+# in the following sequences (based on raw sequence positions)
+#
+# format:
+#   sequence_name
+#   start_position	 end_position	
+#
+
+>barcode_26_026147380502_Geno_C1

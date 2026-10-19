@@ -1,0 +1,27 @@
+Estimating the number of reads in input file...
+37 sequences detected in read file.
+
+[1m[4mLoading reads[0m
+barcode_32_TNEGP034_trimmed.fastq.gz
+37 reads loaded
+
+
+[1m[4mLooking for known adapter sets[0m
+0 / 37 (0.0%)10 / 37 (27.0%)20 / 37 (54.1%)30 / 37 (81.1%)37 / 37 (100.0%)37 / 37 (100.0%)
+                                        Best               [0m
+                                        read       Best    [0m
+                                        start      read end[0m
+  [4mSet                                   %ID        %ID     [0m
+  VHB_WG_P1_P5                              68.2       65.0
+  VHB_POL_POL2M_POL3M                       66.7       78.3
+  VHD_WG                                    70.0       65.4
+  VHD_R0                                    65.0       71.4
+
+
+No adapters found - output reads are unchanged from input reads
+
+[1m[4mSaving trimmed reads to file[0m
+pigz not found - using gzip to compress
+
+Saved result to /srv/scratch/chu-lyon.fr/alamiso/nxf_work/83/a5c3441974f1572217125e61dec478/barcode_32_TNEGP034_primertrimmed.fastq.gz
+

@@ -1,0 +1,10 @@
+# Output of the jpHMM. 
+#
+#   format: 
+#   sequence_name	 chosen_parameters	 predicted_subtypes
+#
+#   (bw=beam-width, jp=jump probability)
+#
+# predicted recombination of the following sequence(s): 
+
+>barcode_28_026114835802_Geno_D7	bw=1e-30, jp=1e-07	D

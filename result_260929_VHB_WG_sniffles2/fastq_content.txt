@@ -1,0 +1,25 @@
+##########################
+##### FASTQ ANALYSIS #####
+##########################
+barcode repository containing fastq/gz files and used for analysis:
+barcode_25
+barcode_26
+barcode_27
+barcode_28
+barcode_29
+barcode_30
+barcode_31
+barcode_32
+barcode_41
+
+##########################
+barcode repository containing other files than fastq/gz and ignored for analysis:
+
+
+##########################
+list of problematic files:
+
+
+##########################
+empty barcode repositories and ignored for analysis:
+
