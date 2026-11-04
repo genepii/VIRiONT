@@ -1,0 +1,47 @@
+Bootstrap: docker
+From: continuumio/miniconda3:latest
+Stage: condabuild
+
+%files
+    VIRiONT2_medaka.yml /VIRiONT2_medaka.yml
+
+%post
+    export PIP_NO_CACHE_DIR=1
+    apt-get update && apt-get install -y --no-install-recommends gcc g++ build-essential
+    /opt/conda/bin/conda env create -f /VIRiONT2_medaka.yml
+    /opt/conda/bin/conda clean -afy
+    apt-get purge -y gcc g++ build-essential
+    apt-get autoremove -y --purge
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /root/.cache
+
+# ---------------------------------------------------------------------
+
+Bootstrap: docker
+From: rockylinux:8
+Stage: V1
+
+%files from condabuild
+    /opt/conda/envs/VIRiONT2_medaka /opt/conda/envs/VIRiONT2_medaka
+
+%environment
+    export PATH=/opt/conda/envs/VIRiONT2_medaka/bin:$PATH
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    dnf update -y
+    dnf install -y procps-ng which
+    dnf clean all
+    rm -rf /var/cache/dnf /root/.cache
+
+    # Points de montage pour le cluster CHU
+    mkdir -p /media /mnt /srv /data /scratch
+
+%runscript
+    exec medaka "$@"
+
+%labels
+    Tool Medaka 2.2.2
+    Author SoufianeAlami
+    Date 2026-09-25

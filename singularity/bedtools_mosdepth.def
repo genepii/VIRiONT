@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: mambaorg/micromamba:2.3.2
+
+%files
+    bedtools_mosdepth.yml /bedtools_mosdepth.yml
+
+%post
+    micromamba env create -f /bedtools_mosdepth.yml
+    micromamba list -n bedtools_mosdepth > /opt/conda/envs/bedtools_mosdepth/packages.txt
+    micromamba env export -n bedtools_mosdepth > /opt/conda/envs/bedtools_mosdepth/environment.yml
+    micromamba clean --all --yes
+
+%environment
+    export PATH=/opt/conda/envs/bedtools_mosdepth/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Tool bedtools, mosdepth
+    Author SoufianeAlami
+    Date 2026-09-25

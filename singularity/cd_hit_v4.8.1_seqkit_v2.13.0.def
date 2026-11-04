@@ -1,0 +1,42 @@
+Bootstrap: docker
+From: ubuntu:26.04
+
+
+%post
+    apt-get update && apt-get install -y wget make g++ zlib1g-dev
+
+    # Install cd-hit
+    wget https://github.com/weizhongli/cdhit/releases/download/V4.8.1/cd-hit-v4.8.1-2019-0228.tar.gz
+    tar -xzf cd-hit-v4.8.1-2019-0228.tar.gz -C /usr/local/bin
+    cd /usr/local/bin/cd-hit-v4.8.1-2019-0228
+    make
+    cd /usr/local/bin/cd-hit-v4.8.1-2019-0228/cd-hit-auxtools
+    make
+    ln -s /usr/local/bin/cd-hit-v4.8.1-2019-0228/* /usr/local/bin/
+    rm -f cd-hit-v4.8.1-2019-0228.tar.gz
+
+    # Install SeqKit 
+    wget https://github.com/shenwei356/seqkit/releases/download/v2.13.0/seqkit_linux_amd64.tar.gz
+    tar -xzf seqkit_linux_amd64.tar.gz -C /usr/local/bin
+    rm -f seqkit_linux_amd64.tar.gz
+
+
+%runscript
+    exec "$@"
+
+
+%help
+    Singularity container of cd-hit v4.8.1: 
+    CD-HIT is a very widely used program for clustering and comparing protein or nucleotide sequences
+    https://github.com/weizhongli/cdhit/
+
+    Singularity container of SeqKit v2.13.0: 
+    A cross-platform and ultrafast toolkit for FASTA/Q file manipulation
+    https://bioinf.shenwei.me/seqkit/
+
+
+%labels
+    Version cd-hit v4.8.1
+    Version SeqKit v2.13.0
+    Author Audrey Lapendry
+    Date 2026-08-01

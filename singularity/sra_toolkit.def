@@ -1,0 +1,17 @@
+Bootstrap: docker
+From: ncbi/sra-tools@sha256:4f048ba6754246e1ed7799a2c8ed469a38427f392e403ca08b93c4255104c9ce
+
+%help
+SUMMARY
+    Singularity container of SRA Toolkit:
+    https://github.com/ncbi/sra-tools
+    KNOWN BUGS
+    None
+    USAGE
+    The SRA Toolkit and SDK from NCBI is a collection of tools and libraries for using data in the INSDC Sequence Read Archives.
+
+
+%labels
+    Version 2026.4
+    Author Audrey Lapendry
+    Date 2026-04-17

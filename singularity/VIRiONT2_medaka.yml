@@ -1,0 +1,20 @@
+name: VIRiONT2_medaka
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - racon
+  - spoa
+  - parasail-python
+  - minimap2=2.31
+  - samtools>=1.23,<1.24
+  - bcftools>=1.20
+  - htslib
+  - pyabpoa
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - torch
+      - medaka==2.2.2

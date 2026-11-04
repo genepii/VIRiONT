@@ -1,0 +1,52 @@
+HBV_subtype.fasta	Longueur --> (corrigée)	GenBank ID	Référence précédente	Référence ajoutée	Commentaires 
+A1	3221	FJ692557	Tshiabuila et al. (2025)		
+A2	3221	EU594385	Tshiabuila et al. (2025)		
+A3	3221	AM184126	Tshiabuila et al. (2025)		
+A4	3285 --> 3221	KM606737	Tshiabuila et al. (2025)		Mis à jour (+64 pb par rapport à l'ancienne référence)
+A5	3221	FJ692601	Tshiabuila et al. (2025)		
+A6	3221	GQ331046	Tshiabuila et al. (2025)		
+B1	3249 --> 3215	D23679	Tshiabuila et al. (2025)		Mis à jour (+34 pb ajoutés à la fin de la séquence, identiques au début)
+B2	3215	GU815637	Tshiabuila et al. (2025)		
+B3	3249 --> 3215	AP011085	Tshiabuila et al. (2025)		Mis à jour (+34 pb ajoutés à la fin de la séquence, identiques au début)
+B4	3215	AB073835	Tshiabuila et al. (2025)		
+B5	3215	DQ463799.1		Kramvis et al. (2014)	Ajouté
+B6	3215	AB287314	Tshiabuila et al. (2025)		
+B7	3215	GQ358141.1		Kalinina et al. (2025)	Ajouté
+B8	3215	GQ358146.1		Kalinina et al. (2025)	Ajouté
+B9	3215	GQ358152		Hu et al. (2026)	Ajouté
+B10	3215	MN689123		Hu et al. (2026)	Ajouté
+C1	3215	DQ089781	Tshiabuila et al. (2025)		
+C2	3215	GQ377617	Tshiabuila et al. (2025)		
+C3	3215	X75656.1		Kramvis et al. (2014)	Ajouté
+C4	3215	KF873526	Tshiabuila et al. (2025)		
+C5	3215	AP011099	Tshiabuila et al. (2025)		
+C6	3215	EU670263	Tshiabuila et al. (2025)		
+C8	3215	AP011107	Tshiabuila et al. (2025)		
+C9	3215	AP011108.1		Kramvis et al. (2014)	Ajouté
+C10	3215	KJ173333	Tshiabuila et al. (2025)		
+C11	3215	AB554015	Tshiabuila et al. (2025)		
+C12	3215	AB554025		Hu et al. (2026)	Ajouté
+C13	3215	AB644281		Hu et al. (2026)	Ajouté
+C14	3215	GQ377555.1		Kramvis et al. (2014)	Ajouté
+C15	3215	AB644286.1		Kramvis et al. (2014)	Ajouté
+C16	3215	AB644287.1		Kramvis et al. (2014)	Ajouté
+C17	3215	MG826139.1		Kalinina et al. (2025)	Ajouté
+D1	3182	KC875277	Tshiabuila et al. (2025)		
+D2	3182	MF925358	Tshiabuila et al. (2025)		
+D3	3182	FJ692507	Tshiabuila et al. (2025)		
+D4	3182	FJ692533	Tshiabuila et al. (2025)		
+D5	3182	GQ205389	Tshiabuila et al. (2025)		
+D7	3182	FJ904435	Tshiabuila et al. (2025)		
+D8	3182	FN594769.1		Hundie et al. (2017)	Ajouté
+D9	3182	JN664919.1		Hundie et al. (2017)	Ajouté
+D10	3182	KX357633.1		Hundie et al. (2017)	Ajouté
+E	3212	GQ161817	Tshiabuila et al. (2025)		
+F1	3215	HM585194	Tshiabuila et al. (2025)		
+F2	3215	DQ899143	Tshiabuila et al. (2025)		
+F3	3215	MH051986	Tshiabuila et al. (2025)		
+F4	3215	KJ843175	Tshiabuila et al. (2025)		
+G	3248	AB056513	Tshiabuila et al. (2025)		
+H	3215	FJ356715	Tshiabuila et al. (2025)		
+I1	3215	AB562463	Tshiabuila et al. (2025)		
+I2	3215	FJ023669	Tshiabuila et al. (2025)		
+J	3182	AB486012	Tshiabuila et al. (2025)		

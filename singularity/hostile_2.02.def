@@ -1,0 +1,37 @@
+Bootstrap: docker
+From: mambaorg/micromamba:2.3.2
+
+
+%files
+hostile_2.02.yml /hostile_2.02.yml
+
+
+%post
+    micromamba env create -f /hostile_2.02.yml
+
+    # Traceability of installed Tools 
+    micromamba list -n hostile_2.02 > /opt/conda/envs/hostile_2.02/packages.txt
+    micromamba env export -n hostile_2.02 > /opt/conda/envs/hostile_2.02/environment.yml
+
+    # Delete Micromamba's temporary files after installation
+    micromamba clean --all --yes
+
+
+%environment
+    export PATH=/opt/conda/envs/hostile_2.02/bin:$PATH
+
+
+%runscript
+    exec hostile "$@"
+
+
+%help
+    Singularity container of hostile 2.0.2: 
+    Hostile removes host sequences from short and long read (meta)genomes, consuming single or paired FASTQ from files or stdin
+    https://github.com/bede/hostile/
+
+
+%labels
+    Version hostile 2.0.2
+    Author Audrey Lapendry
+    Date 2026-08-01

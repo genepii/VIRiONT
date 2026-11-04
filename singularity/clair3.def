@@ -1,0 +1,40 @@
+Bootstrap: docker
+From: continuumio/miniconda3:latest
+Stage: condabuild
+
+%files
+    clair3.yml /clair3.yml
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends gcc g++ build-essential
+    /opt/conda/bin/conda env create -f /clair3.yml
+    /opt/conda/bin/conda clean -afy
+
+# ---------------------------------------------------------------------
+
+Bootstrap: docker
+From: rockylinux:8
+Stage: V1
+
+%files from condabuild
+    /opt/conda/envs/clair3 /opt/conda/envs/clair3
+
+%environment
+    export PATH=/opt/conda/envs/clair3/bin:$PATH
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%post
+    dnf update -y
+    dnf install -y procps-ng which
+    dnf clean all
+    rm -rf /var/cache/dnf
+
+    mkdir -p /media /mnt /srv /data /scratch
+
+%runscript
+    exec run_clair3.sh "$@"
+
+%labels
+    Tool Clair3 2.0.2
+    Author SoufianeAlami

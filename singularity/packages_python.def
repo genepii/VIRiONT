@@ -1,0 +1,30 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Version 2024.12
+    Author Audrey Lapendry
+    Date 2024-12-13
+
+%help
+    SUMMARY
+    Singularity container with: Trycycler.
+    KNOWN BUGS
+    None
+    USAGE
+    Trycycler is a tool for consensus assembly of long-read assemblies.
+
+%environment
+    export PATH=/usr/local/bin:$PATH
+
+%post
+    apt-get update && apt-get install -y \
+        python3 \
+        python3-pip \
+        git \
+        && apt-get clean
+
+    pip3 install pandas openpyxl argparse
+
+%runscript
+    exec trycycler "$@"
