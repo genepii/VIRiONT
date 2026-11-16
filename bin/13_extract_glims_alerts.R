@@ -1,4 +1,7 @@
 #!/usr/bin/env Rscript
+# ==============================================================================
+# 13_extract_glims_alerts.R - Extraction des alertes cliniques GLIMS
+# ==============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -36,7 +39,7 @@ write_empty <- function(path, cols) {
   write.table(empty_df, path, sep = ";", row.names = FALSE, quote = FALSE)
 }
 
-# Détection du type de fichier en lisant l'en-tête
+# Détection du type de fichier
 is_indel_file <- grepl("indels", params$out_csv, ignore.case = TRUE) || grepl("indels", params$input_csv, ignore.case = TRUE)
 
 COLS_OUT_VARIANTS <- c(
@@ -49,7 +52,7 @@ COLS_OUT_INDELS <- c(
   "SAMPLE", "GENE", "GENOTYPE", "REF_POS", "CODON",
   "INDEL_TYPE", "INDEL_SIZE_BP", "CONSEQUENCE",
   "REF_ALLELE", "ALT_ALLELE", "INDEL_NAME",
-  "FREQ", "STATUS", "ALT_READS", "TOTAL_DEPTH"
+  "FREQ", "ALT_READS", "TOTAL_DEPTH"
 )
 
 expected_cols <- if (is_indel_file) COLS_OUT_INDELS else COLS_OUT_VARIANTS
@@ -76,10 +79,10 @@ if (nrow(df_mut) == 0) {
   quit(save = "no", status = 0)
 }
 
-# 2. Règle clinique : majo OU >= seuil (8 %)
+# 2. Règle clinique
 if (is_indel_file) {
   df_mut$FREQ <- as.numeric(df_mut$FREQ)
-  df_selected <- df_mut[df_mut$STATUS == "majo" | df_mut$FREQ >= params$min_freq_minor, ]
+  df_selected <- df_mut[!is.na(df_mut$FREQ) & df_mut$FREQ >= params$min_freq_minor, ]
 } else {
   df_mut <- df_mut[df_mut$REF_AA != df_mut$ALT_AA, ]
   df_mut$freq <- as.numeric(df_mut$freq)
@@ -104,7 +107,7 @@ df_final <- df_selected[, expected_cols, drop = FALSE]
 
 # 4. Dédoublonnage et tri
 if (is_indel_file) {
-  df_final <- df_final[!duplicated(df_final[, c("SAMPLE", "GENE", "REF_POS", "INDEL_NAME", "STATUS")]), ]
+  df_final <- df_final[!duplicated(df_final[, c("SAMPLE", "GENE", "REF_POS", "INDEL_NAME")]), ]
   df_final$REF_POS_NUM <- as.numeric(df_final$REF_POS)
   df_final <- df_final[order(df_final$GENE, df_final$REF_POS_NUM), ]
   df_final$REF_POS_NUM <- NULL

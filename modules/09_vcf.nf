@@ -3,9 +3,9 @@ nextflow.enable.dsl=2
 /*
 ========================================================================================
     MODULE 09: VARIANT CALLING (SORTIE TEXTE CLAIR .VCF)
-    - CALL_VCF           : Clair3 décompressé (alimente le QC)
-    - RAW_PILEUP_COUNTS  : comptage brut des substitutions (bcftools .vcf clair)
-    - RAW_INDEL_COUNTS   : comptage brut des indels (court-circuité .vcf clair)
+    - CALL_VCF            : Clair3 décompressé (alimente le QC)
+    - RAW_PILEUP_COUNTS   : comptage brut des substitutions (bcftools .vcf clair)
+    - RAW_INDEL_COUNTS    : comptage brut des indels (court-circuité .vcf clair)
 ========================================================================================
 */
 
@@ -35,24 +35,25 @@ process CALL_VCF {
     fi
     echo "Utilisation du modèle Clair3 : \$MODEL_PATH"
 
-    run_clair3.sh \\
-        --bam_fn="${bam}" \\
-        --ref_fn="${canonical_ref}" \\
-        --threads=${task.cpus} \\
-        --platform="ont" \\
-        --model_path="\$MODEL_PATH" \\
-        --output=\$PWD/clair3_out \\
-        --include_all_ctgs \\
-        --snp_min_af=0.005 \\
-        --indel_min_af=0.01 \\
-        --var_pct_full=0.005 \\
-        --ref_pct_full=0.005 \\
-        --min_coverage=10 \\
-        --min_mq=5 \\
-        --qual=0 \\
-        --pileup_only \\
-        --print_ref_calls \\
-        --enable_variant_calling_at_sequence_head_and_tail
+    run_clair3.sh \
+        --bam_fn="${bam}" \
+        --ref_fn="${canonical_ref}" \
+        --threads=${task.cpus} \
+        --platform="ont" \
+        --model_path="\$MODEL_PATH" \
+        --output=\$PWD/clair3_out \
+        --include_all_ctgs \
+        --snp_min_af=0.005 \
+        --indel_min_af=0.01 \
+        --var_pct_full=0.005 \
+        --ref_pct_full=0.005 \
+        --min_coverage=10 \
+        --min_mq=5 \
+        --qual=0 \
+        --pileup_only \
+        --print_ref_calls \
+        --enable_variant_calling_at_sequence_head_and_tail \
+        --enable_long_indel
 
     if [ -f "clair3_out/pileup.vcf.gz" ]; then
         gzip -dc clair3_out/pileup.vcf.gz > "${sample_id}_${genotype}.vcf"
@@ -87,13 +88,13 @@ process RAW_PILEUP_COUNTS {
     [ ! -f "${canonical_ref}.fai" ] && samtools faidx "${canonical_ref}"
 
     # -Ov génère directement un fichier texte VCF décompressé
-    bcftools mpileup \\
-        -f "${canonical_ref}" \\
-        -a FORMAT/AD,FORMAT/DP \\
-        -d 1000000 -L 1000000 \\
-        -Q 0 -q 0 -B -A -I \\
-        --no-version \\
-        -Ov -o "${sample_id}_${genotype}.raw_counts.vcf" \\
+    bcftools mpileup \
+        -f "${canonical_ref}" \
+        -a FORMAT/AD,FORMAT/DP \
+        -d 1000000 -L 1000000 \
+        -Q 0 -q 0 -B -A -I \
+        --no-version \
+        -Ov -o "${sample_id}_${genotype}.raw_counts.vcf" \
         "${bam}"
     """
 
@@ -121,14 +122,14 @@ process RAW_INDEL_COUNTS {
 
     # --- CODE ORIGINAL CONSERVÉ (-Ov pour texte brut) ---
     # [ ! -f "${canonical_ref}.fai" ] && samtools faidx "${canonical_ref}"
-    # bcftools mpileup \\
-    #     -f "${canonical_ref}" \\
-    #     -a FORMAT/AD,FORMAT/DP \\
-    #     -d 1000000 -L 1000000 --max-idepth 1000000 \\
-    #     -m 1 -F 0.0001 \\
-    #     -Q 0 -q 0 -B -A \\
-    #     --no-version -Ou "${bam}" \\
-    #   | bcftools view -v indels -Ov -o "${sample_id}_${genotype}.raw_indels.vcf"
+    # bcftools mpileup \
+    #      -f "${canonical_ref}" \
+    #      -a FORMAT/AD,FORMAT/DP \
+    #      -d 1000000 -L 1000000 --max-idepth 1000000 \
+    #      -m 1 -F 0.0001 \
+    #      -Q 0 -q 0 -B -A \
+    #      --no-version -Ou "${bam}" \
+    #    | bcftools view -v indels -Ov -o "${sample_id}_${genotype}.raw_indels.vcf"
     # ----------------------------------------------------
 
     echo '##fileformat=VCFv4.2' > "${sample_id}_${genotype}.raw_indels.vcf"

@@ -14,7 +14,7 @@ params.consensus_min_depth  = params.consensus_min_depth  ?: 10
 params.iupac_min_freq       = params.iupac_min_freq != null ? params.iupac_min_freq : 0.08
 params.clair3_model         = params.clair3_model         ?: "r1041_e82_400bps_sup_v4.2.0"
 params.primers_adapters     = params.primers_adapters     ?: "${projectDir}/ref/porechop_adapters.txt"
-params.mutation_tables      = params.mutation_tables      ?: "${projectDir}/mutation_table"
+params.mutation_tables      = params.mutation_tables      ?: "${projectDir}/ref"
 params.min_reads            = params.min_reads            ?: 20
 params.max_reads            = params.max_reads            ?: 1000
 params.mi_cutoff            = params.mi_cutoff            ?: 30.0
@@ -37,9 +37,9 @@ include { TRIM_PRIMERS                                              } from './mo
 include { COMPETITIVE_ALIGN                                         } from './modules/04_competitive_align.nf'
 include { ALIGN_SUBTYPE; GENERATE_CONSENSUS; COLLECT_CONSENSUS      } from './modules/05_consensus.nf'
 include { RECOMBINATION_JPHMM; COLLECT_RECOMBINATION_SUMMARIES      } from './modules/06_recombination.nf'
-include { CLINICAL_FILTER                                          } from './modules/07_clinical_filter.nf'
-include { ALIGN_GENOTYPE_BAM                                       } from './modules/08_canonical_bam.nf'
-include { CALL_VCF; RAW_PILEUP_COUNTS                                } from './modules/09_vcf.nf'
+include { CLINICAL_FILTER                                           } from './modules/07_clinical_filter.nf'
+include { ALIGN_GENOTYPE_BAM                                        } from './modules/08_canonical_bam.nf'
+include { CALL_VCF; RAW_PILEUP_COUNTS                               } from './modules/09_vcf.nf'
 include { QC_MOSDEPTH; QC_ANALYSIS                                  } from './modules/10_qc_analysis.nf'
 include { PREPARE_TREE_REFS; PHYLOGENY; PLOT_TREE                   } from './modules/11_phylogeny.nf'
 include { COMPUTE_BAM_COVERAGE; PLOT_GLOBAL_COVERAGE                } from './modules/12_coverage.nf'
@@ -214,7 +214,6 @@ workflow {
         }
         .set { consensus_input_ch }
 
-    // 05_CONSENSUS : Alignement sous-type + consensus IUPAC
     ALIGN_SUBTYPE(consensus_input_ch)
     GENERATE_CONSENSUS(ALIGN_SUBTYPE.out.bam_ref)
 
@@ -272,7 +271,6 @@ workflow {
         virus_name
     )
 
-    // Initialisation des canaux VCF et GLIMS
     def all_vcfs_ch = Channel.value([])
     def glims_alerts_file_ch = Channel.value(file("${projectDir}/assets/NO_FILE"))
     def glims_indels_file_ch = Channel.value(file("${projectDir}/assets/NO_FILE"))
@@ -289,11 +287,11 @@ workflow {
         def raw_triplet_ch = RAW_PILEUP_COUNTS.out
             .map { sample_id, genotype, vcf -> tuple(sample_id, genotype, vcf) }
 
-        // Substitutions
+        // 1. Substitutions (utilise raw_triplet_ch + dossier mutation_table/)
         SEARCH_HBV_MUTATIONS(
             raw_triplet_ch,
             virus_name,
-            file(params.mutation_tables),
+            file("${projectDir}/mutation_table"),
             canonical_align_ref
         )
 
@@ -303,11 +301,11 @@ workflow {
             SEARCH_HBV_MUTATIONS.out.sample_glims_variants_alerts.collect().ifEmpty([])
         )
 
-        // Indels & Frameshifts
+        // 2. Indels & Frameshifts (utilise CALL_VCF.out + dossier ref/)
         SEARCH_HBV_INDELS(
             CALL_VCF.out,
             virus_name,
-            file(params.mutation_tables),
+            file("${projectDir}/ref"),
             canonical_align_ref
         )
 
@@ -366,7 +364,6 @@ workflow {
         tech_name
     )
 
-    // 14. Détection fine des transcrits épissés via FLAIR (VHB WG uniquement)
     if (virus_name == "VHB" && tech_name == "WG") {
         FLAIR(
             genotype_align_input_ch,
@@ -378,7 +375,6 @@ workflow {
         )
     }
 
-    // 15. Export FastFinder / GLIMS (5 arguments : summary, consensus, substitutions, indels, run_id)
     FASTFINDER(
         CLINICAL_FILTER.out.summary_tsv,
         CLINICAL_FILTER.out.validated_all_fasta,

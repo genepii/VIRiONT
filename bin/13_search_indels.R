@@ -2,6 +2,7 @@
 
 # ==============================================================================
 # 13_search_indels.R - Détection et Annotation Standardisée des INDELs VHB
+# Basé sur le catalogue master des coordonnées (gene_coordinates_genotype_indels.csv)
 # ==============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -68,7 +69,7 @@ INDEL_COLS <- c(
   "REFERENCE", "REF_POS", "CODON", "GENE", "GENOTYPE",
   "INDEL_TYPE", "INDEL_SIZE_BP", "CONSEQUENCE",
   "REF_ALLELE", "ALT_ALLELE", "INDEL_NAME",
-  "FREQ", "STATUS", "ALT_READS", "TOTAL_DEPTH", "warning"
+  "FREQ", "ALT_READS", "TOTAL_DEPTH", "warning"
 )
 
 write_empty <- function(path) {
@@ -78,24 +79,43 @@ write_empty <- function(path) {
   write.table(empty_df, path, sep=";", row.names=FALSE, quote=FALSE)
 }
 
-# 1. Chargement de la table de mutations du génotype
-gt_letter <- toupper(substr(gsub("[^A-Za-z]", "", genotype), 1, 1))
-if (gt_letter == "") gt_letter <- "D"
+# ==============================================================================
+# 1. Chargement du Catalogue Master des Coordonnées Génomiques VHB
+# ==============================================================================
+master_table_path <- file.path(tablemut_input, "gene_coordinates_genotype_indels.csv")
 
-table_name <- paste0("mutation_GT", gt_letter, ".csv")
-mut_table_path <- file.path(tablemut_input, table_name)
-
-if (gt_letter %in% c("G", "H") || !file.exists(mut_table_path)) {
+if (!file.exists(master_table_path)) {
+  cat(sprintf("[13_search_indels] ERREUR : Fichier master introuvable à %s\n", master_table_path))
   write_empty(file_out_f)
   quit(save = "no", status = 0)
 }
 
-table_mut <- read.csv2(mut_table_path, stringsAsFactors = FALSE)
-for (col in colnames(table_mut)) {
-  if (is.character(table_mut[[col]])) table_mut[[col]] <- trimws(table_mut[[col]])
+master_df <- read.csv2(master_table_path, stringsAsFactors = FALSE)
+for (col in colnames(master_df)) {
+  if (is.character(master_df[[col]])) master_df[[col]] <- trimws(master_df[[col]])
 }
 
+# Détermination de la catégorie de génotype selon votre nomenclature
+gt_upper <- toupper(genotype)
+gt_category <- "DJ" # Par défaut D-J
+
+if (grepl("A", gt_upper)) {
+  gt_category <- "A"
+} else if (grepl("[BCFHI]", gt_upper)) {
+  gt_category <- "BCFHI"
+} else if (grepl("[DJ]", gt_upper)) {
+  gt_category <- "DJ"
+} else if (grepl("E", gt_upper)) {
+  gt_category <- "E"
+} else if (grepl("G", gt_upper)) {
+  gt_category <- "G"
+}
+
+sub_master <- subset(master_df, Genotype_Group == gt_category)
+
+# ==============================================================================
 # 2. Parsing du VCF
+# ==============================================================================
 if (is.null(vcf_input) || !file.exists(vcf_input) || file.info(vcf_input)$size == 0) {
   write_empty(file_out_f)
   quit(save = "no", status = 0)
@@ -150,7 +170,6 @@ for (i in seq_len(nrow(raw_vcf))) {
       if (filter_threshold > 0 && cnt < min_alt) next
 
       freq_ind <- round((cnt / actual_dp) * 100.0, 2)
-      stat <- if (freq_ind >= 50.0) "majo" else "mino_indel"
 
       parsed_indels[[length(parsed_indels) + 1]] <- data.frame(
         REFERENCE   = raw_vcf$CHROM[i],
@@ -160,7 +179,6 @@ for (i in seq_len(nrow(raw_vcf))) {
         count       = cnt,
         total_count = actual_dp,
         freq        = freq_ind,
-        base_status = stat,
         stringsAsFactors = FALSE
       )
     }
@@ -174,131 +192,87 @@ if (length(parsed_indels) == 0) {
 
 indels_df <- do.call(rbind, parsed_indels)
 
-# 3. Annotation standardisée
-coding_configs <- list(
-  list(pattern = "RT", pfx = "rt", gene = "Domaine RT"),
-  list(pattern = "^Core", pfx = "c", gene = "Core"),
-  list(pattern = "Domaine S", pfx = "s", gene = "Domaine S"),
-  list(pattern = "PreS1", pfx = "preS1_", gene = "Domaine PreS1"),
-  list(pattern = "PreS2", pfx = "preS2_", gene = "Domaine PreS2"),
-  list(pattern = "HBx", pfx = "x", gene = "Domaine HBx")
-)
-
-noncoding_configs <- list(
-  list(pattern = "PreCore", pfx = "precore_", gene = "PreCore"),
-  list(pattern = "BCP", pfx = "bcp_", gene = "BCP")
-)
-
+# ==============================================================================
+# 3. Annotation standardisée basée sur le catalogue master (Gestion des chevauchements)
+# ==============================================================================
 results <- list()
 
 for (r in seq_len(nrow(indels_df))) {
   ind      <- indels_df[r, ]
-  pos      <- ind$REF_POS
+  pos      <- ind$REF_POS + window_pos
   ref_len  <- nchar(ind$REF)
   alt_len  <- nchar(ind$ALT)
   len_diff <- alt_len - ref_len
   is_fs    <- (len_diff %% 3 != 0)
-  span_pos <- seq(pos, pos + max(0, ref_len - 1))
 
-  matched_any <- FALSE
+  matched_genes <- c()
 
-  # Gènes codants
-  for (cfg in coding_configs) {
-    sub_mut <- table_mut[grepl(cfg$pattern, table_mut$Region, ignore.case = TRUE), ]
-    if (nrow(sub_mut) == 0) next
-
-    n1 <- as.numeric(sub_mut$NUC1_P3) + window_pos
-    n2 <- as.numeric(sub_mut$NUC2_P3) + window_pos
-    n3 <- as.numeric(sub_mut$NUC3_P3) + window_pos
-
-    hits <- which((n1 %in% span_pos) | (n2 %in% span_pos) | (n3 %in% span_pos))
-
-    if (length(hits) > 0) {
-      matched_any <- TRUE
-      hit_row <- sub_mut[hits[1], ]
-      pos_eco <- hit_row$Position_EcoR1
-
-      if (is_fs) {
-        pos_type <- "FRAMESHIFT"
-        conseq   <- "FS"
-        mut_name <- paste0(cfg$pfx, "_fs", pos_eco)
-        warn     <- "alerte! FRAMESHIFT"
-      } else {
-        num_aa   <- abs(len_diff) / 3
-        pos_type <- ifelse(len_diff > 0, "IN_FRAME_INS", "IN_FRAME_DEL")
-        conseq   <- ifelse(len_diff > 0, paste0("+", num_aa, "AA"), paste0("-", num_aa, "AA"))
-        type_str <- ifelse(len_diff > 0, paste0("ins", num_aa, "AA"), paste0("del", num_aa, "AA"))
-        mut_name <- paste0(cfg$pfx, "_", type_str, "_codon", pos_eco)
-        warn     <- "alerte! INDEL"
-      }
-
-      results[[length(results) + 1]] <- data.frame(
-        REFERENCE     = ind$REFERENCE,
-        REF_POS       = ind$REF_POS,
-        CODON         = as.character(pos_eco),
-        GENE          = cfg$gene,
-        GENOTYPE      = paste0("GT", gt_letter),
-        INDEL_TYPE    = pos_type,
-        INDEL_SIZE_BP = len_diff,
-        CONSEQUENCE   = conseq,
-        REF_ALLELE    = ind$REF,
-        ALT_ALLELE    = ind$ALT,
-        INDEL_NAME    = mut_name,
-        FREQ          = ind$freq,
-        STATUS        = ind$base_status,
-        ALT_READS     = ind$count,
-        TOTAL_DEPTH   = ind$total_count,
-        warning       = warn,
-        stringsAsFactors = FALSE
-      )
-    }
+  for (row_idx in seq_len(nrow(sub_master))) {
+  gene_row <- sub_master[row_idx, ]
+  gene_name <- gene_row$Gene
+  
+  s1 <- suppressWarnings(as.numeric(gene_row$Pipeline_Start1))
+  e1 <- suppressWarnings(as.numeric(gene_row$Pipeline_End1))
+  s2 <- suppressWarnings(as.numeric(gene_row$Pipeline_Start2))
+  e2 <- suppressWarnings(as.numeric(gene_row$Pipeline_End2))
+  
+  # Intervalle de l'indel sur le génome
+  indel_start <- pos
+  indel_end <- pos + max(0, ref_len - 1)
+  
+  # Vérification du chevauchement d'intervalles avec le segment 1
+  overlaps_segment1 <- FALSE
+  if (!is.na(s1) && !is.na(e1)) {
+    overlaps_segment1 <- !(indel_end < s1 || indel_start > e1)
   }
-
-  # Régions régulatrices (BCP / PreCore)
-  if (!matched_any) {
-    for (cfg in noncoding_configs) {
-      sub_mut <- table_mut[grepl(cfg$pattern, table_mut$Region, ignore.case = TRUE), ]
-      if (nrow(sub_mut) == 0) next
-
-      n1 <- as.numeric(sub_mut$NUC1_P3) + window_pos
-      hits <- which(n1 %in% span_pos)
-
-      if (length(hits) > 0) {
-        matched_any <- TRUE
-        hit_row <- sub_mut[hits[1], ]
-        pos_eco <- hit_row$Position_EcoR1
-
-        type_tag <- ifelse(len_diff > 0, paste0("ins", len_diff, "bp"), paste0("del", abs(len_diff), "bp"))
-        mut_name <- paste0(toupper(cfg$pfx), pos_eco, "_", type_tag)
-
-        results[[length(results) + 1]] <- data.frame(
-          REFERENCE     = ind$REFERENCE,
-          REF_POS       = ind$REF_POS,
-          CODON         = as.character(pos_eco),
-          GENE          = cfg$gene,
-          GENOTYPE      = paste0("GT", gt_letter),
-          INDEL_TYPE    = ifelse(len_diff > 0, "INS_NT", "DEL_NT"),
-          INDEL_SIZE_BP = len_diff,
-          CONSEQUENCE   = type_tag,
-          REF_ALLELE    = ind$REF,
-          ALT_ALLELE    = ind$ALT,
-          INDEL_NAME    = mut_name,
-          FREQ          = ind$freq,
-          STATUS        = ind$base_status,
-          ALT_READS     = ind$count,
-          TOTAL_DEPTH   = ind$total_count,
-          warning       = "alerte! INDEL",
-          stringsAsFactors = FALSE
-        )
-        break
-      }
-    }
+  
+  # Vérification du chevauchement d'intervalles avec le segment 2 (si présent)
+  overlaps_segment2 <- FALSE
+  if (!is.na(s2) && !is.na(e2) && s2 != "" && e2 != "") {
+    overlaps_segment2 <- !(indel_end < s2 || indel_start > e2)
   }
+  
+  if (overlaps_segment1 || overlaps_segment2) {
+    matched_genes <- unique(c(matched_genes, gene_name))
+  }
+  }
+  if (length(matched_genes) > 0) {
+    combined_genes <- paste(matched_genes, collapse = " / ")
+    
+    if (is_fs) {
+      pos_type <- "FRAMESHIFT"
+      conseq   <- "FS"
+      mut_name <- paste0(tolower(gsub(" / .*", "", matched_genes[1])), "_fs_pos", pos)
+      warn     <- "alerte! FRAMESHIFT"
+    } else {
+      num_aa   <- abs(len_diff) / 3
+      pos_type <- ifelse(len_diff > 0, "IN_FRAME_INS", "IN_FRAME_DEL")
+      conseq   <- ifelse(len_diff > 0, paste0("+", num_aa, "AA"), paste0("-", num_aa, "AA"))
+      type_str <- ifelse(len_diff > 0, paste0("ins", num_aa, "AA"), paste0("del", num_aa, "AA"))
+      mut_name <- paste0(tolower(gsub(" / .*", "", matched_genes[1])), "_", type_str, "_pos", pos)
+      warn     <- "alerte! INDEL"
+    }
 
-  # Hors catalogue annoté
-  if (!matched_any) {
+    results[[length(results) + 1]] <- data.frame(
+      REFERENCE     = ind$REFERENCE,
+      REF_POS       = ind$REF_POS,
+      CODON         = "-",
+      GENE          = combined_genes,
+      GENOTYPE      = paste0("GT", gt_upper),
+      INDEL_TYPE    = pos_type,
+      INDEL_SIZE_BP = len_diff,
+      CONSEQUENCE   = conseq,
+      REF_ALLELE    = ind$REF,
+      ALT_ALLELE    = ind$ALT,
+      INDEL_NAME    = mut_name,
+      FREQ          = ind$freq,
+      ALT_READS     = ind$count,
+      TOTAL_DEPTH   = ind$total_count,
+      warning       = warn,
+      stringsAsFactors = FALSE
+    )
+  } else {
     end_pos <- pos + max(0, ref_len - 1)
-    type_tag <- ifelse(len_diff > 0, paste0("ins", len_diff, "bp"), paste0("del", abs(len_diff), "bp"))
     if (len_diff > 0) {
       mut_name <- paste0("nt", pos, "_", pos + 1, "ins", substr(ind$ALT, 2, nchar(ind$ALT)))
     } else {
@@ -310,7 +284,7 @@ for (r in seq_len(nrow(indels_df))) {
       REF_POS       = ind$REF_POS,
       CODON         = "-",
       GENE          = "AUTRE_REGION",
-      GENOTYPE      = paste0("GT", gt_letter),
+      GENOTYPE      = paste0("GT", gt_upper),
       INDEL_TYPE    = ifelse(is_fs, "FRAMESHIFT", ifelse(len_diff > 0, "IN_FRAME_INS", "IN_FRAME_DEL")),
       INDEL_SIZE_BP = len_diff,
       CONSEQUENCE   = ifelse(is_fs, "FS", ifelse(len_diff > 0, paste0("+", abs(len_diff)/3, "AA"), paste0("-", abs(len_diff)/3, "AA"))),
@@ -318,7 +292,6 @@ for (r in seq_len(nrow(indels_df))) {
       ALT_ALLELE    = ind$ALT,
       INDEL_NAME    = mut_name,
       FREQ          = ind$freq,
-      STATUS        = ind$base_status,
       ALT_READS     = ind$count,
       TOTAL_DEPTH   = ind$total_count,
       warning       = ifelse(is_fs, "alerte! FRAMESHIFT", "alerte! INDEL"),
