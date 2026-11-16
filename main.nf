@@ -272,8 +272,8 @@ workflow {
     )
 
     def all_vcfs_ch = Channel.value([])
-    def glims_alerts_file_ch = Channel.value(file("${projectDir}/assets/NO_FILE"))
-    def glims_indels_file_ch = Channel.value(file("${projectDir}/assets/NO_FILE"))
+    def glims_alerts_file_ch = Channel.value(file("${projectDir}/assets/NO_MUT_FILE"))
+    def glims_indels_file_ch = Channel.value(file("${projectDir}/assets/NO_INDEL_FILE"))
 
     if (virus_name == "VHB") {
         CALL_VCF(ALIGN_GENOTYPE_BAM.out.for_vcf, params.clair3_model)
