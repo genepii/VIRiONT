@@ -172,6 +172,15 @@ workflow {
             if (!dir_path.exists()) {
                 dir_path = file("${params.fastq_dir}/barcode${num_barcode}")
             }
+            if (!dir_path.exists()) return null
+
+            // Cohérence avec 00_init_logs.nf : ignorer les dossiers sans FASTQ ou < 50 Ko
+            def fq_files = dir_path.listFiles()?.findAll { f ->
+                f.isFile() && (f.name ==~ /.*\.(fastq|fq)(\.gz)?$/)
+            } ?: []
+            def total_bytes = fq_files.sum { it.size() } ?: 0L
+            if (fq_files.isEmpty() || total_bytes < 51200L) return null
+
             return tuple("barcode_${formatted_barcode}_${sample}", dir_path)
         }
         .filter { it != null }
@@ -181,7 +190,12 @@ workflow {
     DEHOST_HOSTILE(MERGE_FASTQ.out.merged_fastq)
     TRIM_CHOPPER(DEHOST_HOSTILE.out.dehosted_fastq, min_length, max_length)
 
-    TRIM_PRIMERS(TRIM_CHOPPER.out.trimmed_fastq, primers_file)
+    // Protection contre les fichiers FASTQ devenus vides après Chopper (ex: témoins négatifs)
+    TRIM_CHOPPER.out.trimmed_fastq
+        .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }
+        .set { non_empty_chopper_ch }
+
+    TRIM_PRIMERS(non_empty_chopper_ch, primers_file)
 
     TRIM_PRIMERS.out.fastq
         .filter { sample_id, fq -> fq.exists() && fq.size() > 100 }

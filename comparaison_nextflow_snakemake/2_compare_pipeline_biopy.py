@@ -10,7 +10,6 @@ Gère les génomes circulaires (duplication virtuelle) et le brin inverse.
 import os
 import sys
 import re
-import glob
 import argparse
 import pandas as pd
 import numpy as np
@@ -20,22 +19,23 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from Bio import SeqIO
 from Bio.Align import PairwiseAligner
+from Bio.Seq import Seq
 
 # ==============================================================================
-# 1. CLI ARGUMENTS
+# 1. CLI ARGUMENTS (Ciblage direct des fichiers multi-FASTA)
 # ==============================================================================
 def parse_args():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description="Comparaison de consensus avec Bio.Align (Biopython).")
     parser.add_argument(
-        "--snake_dir", "-s",
-        default=os.path.join(script_dir, "snakemake"),
-        help="Dossier des consensus Snakemake"
+        "--snake_file", "-s",
+        default="/srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/comparaison_nextflow_snakemake/snakemake/all_cons.fasta",
+        help="Chemin du fichier multi-FASTA Snakemake"
     )
     parser.add_argument(
-        "--nf_dir", "-n",
-        default="/srv/scratch/chu-lyon.fr/alamiso/VIRiONT_PRONAME_REC/results/07_GENOTYPING/renamed_consensus",
-        help="Dossier des consensus Nextflow"
+        "--nf_file", "-n",
+        default="/srv/scratch/chu-lyon.fr/alamiso/VIRiONT_V2/comparaison_nextflow_snakemake/nextflow/validated_consensus_all.fasta",
+        help="Chemin du fichier multi-FASTA Nextflow"
     )
     parser.add_argument(
         "--out_dir", "-o",
@@ -51,69 +51,70 @@ def parse_args():
     return parser.parse_args()
 
 # ==============================================================================
-# 2. MÉTADONNÉES
+# 2. MÉTADONNÉES (Extraction robuste des ID et génotypes depuis les en-têtes)
 # ==============================================================================
-def parse_metadata(filename):
-    base = os.path.basename(filename)
+def parse_metadata(header_text):
+    text = str(header_text)
+    
+    # Gestion des contrôles et souches de référence spécifiques
+    if "DQ089802" in text.upper(): return "DQ089802", "C2", "BC98"
+    if "FJ349241" in text.upper(): return "FJ349241", "CD", "BC95"
+    if "377549" in text.upper() or "GQ377549" in text.upper(): return "377549", "BC", "BC96"
 
-    if "FJ349241" in base.upper(): return "26018776295", "C2", "BC95"
-    if "377549" in base.upper():   return "26018776296", "B2", "BC96"
-    if "BC11" in base.upper() or "RECOMB" in base.upper(): return "26018776297", "C2", "BC97"
-    if "DQ089802" in base.upper(): return "26018776298", "C2", "BC98"
+    # Extraction du barcode
+    m_bc = re.search(r"(?:barcode_?|BC)(\d{1,3})", text, re.IGNORECASE)
+    bc = f"BC{int(m_bc.group(1)):02d}" if m_bc else "UNK"
 
-    m_bc = re.search(r"(?:barcode_?|BC)(\d{1,2})(?:_|\.|\b)", base, re.IGNORECASE)
-    bc = f"BC{int(m_bc.group(1)):02d}" if m_bc else None
-
-    m_num = re.search(r"(\d{10,12})", base)
+    # Recherche d'un identifiant numérique patient (10 à 12 chiffres)
+    m_num = re.search(r"(\d{10,12})", text)
     if m_num:
-        sample_id = m_num.group(1).lstrip('0')
+        sample_id = m_num.group(1)
     else:
-        clean_base = re.sub(r"^(?:barcode_?\d{1,2}_|BC\d{1,2}_)", "", base, flags=re.IGNORECASE)
-        sample_id = clean_base.split('_')[0].split('.')[0]
+        clean_name = re.sub(r"^(?:barcode_?\d{1,3}[-_]?|BC\d{1,3}[-_]?)", "", text, flags=re.IGNORECASE)
+        sample_id = clean_name.split('_')[0].split('-')[0].split('.')[0]
+        if not sample_id or sample_id.lower() in ["all", "all_cons", "seq", "validated"]:
+            sample_id = "UNKNOWN"
 
-    if bc == "BC97" or "26018776297" in base: sample_id = "26018776297"
-    elif bc == "BC98" or "26018776298" in base: sample_id = "26018776298"
+    # Extraction du génotype (ex: _A2, _D3, _Geno_D3, etc.)
+    m_geno = re.search(r"(?:_Geno_|_|-)([A-I]\d*)(?:_|\.|\s|$|-)", text, re.IGNORECASE)
+    if not m_geno:
+        m_geno = re.search(r"(?:_|-)([A-I]\d*)(?:_|\.|\s|$|-)", text, re.IGNORECASE)
 
-    m_geno_vhb = re.search(r"(?:_Geno_|_|-)([A-I]\d*)(?:_|\.|\s|$)", base)
-    m_geno_vhd = re.search(r"(?:_Geno_|_|HDV)(\d[a-z]?)(?:_|\.|\s|$)", base, re.IGNORECASE)
-
-    if m_geno_vhb:
-        geno = m_geno_vhb.group(1).upper()
-    elif m_geno_vhd:
-        geno = m_geno_vhd.group(1).lower()
+    if m_geno:
+        geno = m_geno.group(1).upper()
     else:
-        m_iso = re.search(r"_([A-I])(?:_|\.|\b)", base)
+        m_iso = re.search(r"_([A-I])(?:_|\.|\b)", text, re.IGNORECASE)
         geno = m_iso.group(1).upper() if m_iso else "UNK"
 
     return sample_id, geno, bc
 
 # ==============================================================================
-# 3. CHARGEMENT
+# 3. CHARGEMENT DIRECT DES FICHIERS FASTA UNIQUE
 # ==============================================================================
-def load_sequences(directory, label):
+def load_sequences_from_file(fasta_path, label):
     records = {}
-    files = glob.glob(os.path.join(directory, "*.fasta")) + \
-            glob.glob(os.path.join(directory, "*.fa")) + \
-            glob.glob(os.path.join(directory, "*.fna"))
+    if not os.path.exists(fasta_path):
+        sys.exit(f"[-] Erreur : Fichier introuvable : {fasta_path}")
 
-    for f in sorted(files):
-        sid, geno, bc = parse_metadata(f)
-        for rec in SeqIO.parse(f, "fasta"):
-            key = f"{sid}_{geno}"
-            if key in records and bc:
-                key = f"{sid}_{geno}_{bc}"
-            records[key] = {
-                "id": rec.id,
-                "seq": str(rec.seq).upper(),
-                "len": len(rec.seq),
-                "file": os.path.basename(f),
-                "sid": sid,
-                "geno": geno,
-                "bc": bc,
-                "path": f
-            }
-            break
-    print(f"[+] {label:10s} : {len(records)} séquences indexées.")
+    for rec in SeqIO.parse(fasta_path, "fasta"):
+        full_header = f"{rec.id} {rec.description}"
+        sid, geno, bc = parse_metadata(full_header)
+
+        key = f"{sid}_{geno}"
+        if key in records and bc:
+            key = f"{sid}_{geno}_{bc}"
+
+        records[key] = {
+            "id": rec.id,
+            "seq": str(rec.seq).upper(),
+            "len": len(rec.seq),
+            "file": os.path.basename(fasta_path),
+            "sid": sid,
+            "geno": geno,
+            "bc": bc,
+            "path": fasta_path
+        }
+    print(f"[+] {label:10s} : {len(records)} séquences chargées depuis {os.path.basename(fasta_path)}.")
     return records
 
 # ==============================================================================
@@ -140,7 +141,7 @@ def match_pairs(snake_dict, nf_dict):
                     break
             pairs.append((f"{sid}_{geno}", sn_val, matched if matched else candidates[0][1]))
         else:
-            print(f"[-] Pas de correspondance pour : {sn_val['file']}")
+            print(f"[-] Pas de correspondance pour la séquence ID: {sid} (Génotype: {geno})")
 
     print(f"\n[+] Paires concordantes : {len(pairs)} / {len(snake_dict)}")
     return pairs
@@ -150,7 +151,6 @@ def match_pairs(snake_dict, nf_dict):
 # ==============================================================================
 def run_alignment_biopython(pairs, circular_mode=True):
     aligner = PairwiseAligner()
-    # Mode local (Smith-Waterman) pour permettre l'alignement sur cible doublée
     aligner.mode = "local"
     aligner.match_score = 2.0
     aligner.mismatch_score = -3.0
@@ -163,15 +163,12 @@ def run_alignment_biopython(pairs, circular_mode=True):
         seq_sn = sn_val["seq"]
         seq_nf = nf_val["seq"]
 
-        # Cible Nextflow doublée pour s'affranchir de la coupure d'origine circulaire
         target_seq = (seq_nf + seq_nf) if circular_mode else seq_nf
 
         best_alignment = None
         best_strand = "Forward"
         best_score = -float("inf")
 
-        # Évaluation des deux brins
-        from Bio.Seq import Seq
         seq_sn_obj = Seq(seq_sn)
         orientations = [
             ("Forward", str(seq_sn_obj)),
@@ -193,8 +190,7 @@ def run_alignment_biopython(pairs, circular_mode=True):
             gaps = counts.gaps
             aln_len = matches + mismatches + gaps
 
-            # Identité calculée sur la longueur alignée (similaire à BLAST)
-            pident = round((matches / (matches + mismatches + gaps)) * 100.0, 3) if aln_len > 0 else 0.0
+            pident = round((matches / aln_len) * 100.0, 3) if aln_len > 0 else 0.0
             divergence = round(100.0 - pident, 3)
         else:
             pident, divergence, aln_len, mismatches, gaps, best_strand = 0.0, 100.0, 0, 0, 0, "Unknown"
@@ -292,11 +288,8 @@ def main():
     args = parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
-    if not os.path.isdir(args.snake_dir) or not os.path.isdir(args.nf_dir):
-        sys.exit("[-] Erreur : répertoire d'entrée introuvable.")
-
-    snake_dict = load_sequences(args.snake_dir, "Snakemake")
-    nf_dict = load_sequences(args.nf_dir, "Nextflow")
+    snake_dict = load_sequences_from_file(args.snake_file, "Snakemake")
+    nf_dict = load_sequences_from_file(args.nf_file, "Nextflow")
 
     pairs = match_pairs(snake_dict, nf_dict)
     if not pairs:

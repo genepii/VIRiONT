@@ -1,0 +1,10 @@
+Sample	File_Snakemake	File_Nextflow	Length_Snakemake	Length_Nextflow	Delta_Length	Orientation	Identity_Pct	Divergence_Pct	SNVs_Count	Internal_Gaps	Overlap_Length
+026048134402_A2	all_cons.fasta	validated_consensus_all.fasta	3190	3221	31	Forward	99.969	0.031	1	0	3190
+026048134403_D3	all_cons.fasta	validated_consensus_all.fasta	3153	3182	29	Forward	99.968	0.032	1	0	3152
+026048134404_C1	all_cons.fasta	validated_consensus_all.fasta	3161	3213	52	Forward	98.805	1.195	16	22	3181
+026048134405_F2	all_cons.fasta	validated_consensus_all.fasta	3184	3215	31	Forward	99.906	0.094	3	0	3184
+026050043202_B2	all_cons.fasta	validated_consensus_all.fasta	3218	3162	-56	Forward	99.778	0.222	7	0	3160
+026051358601_A2	all_cons.fasta	validated_consensus_all.fasta	3191	3221	30	Forward	99.969	0.031	1	0	3190
+026051715805_A1	all_cons.fasta	validated_consensus_all.fasta	3190	3221	31	Forward	99.718	0.282	9	0	3190
+026053562702_E	all_cons.fasta	validated_consensus_all.fasta	3182	3212	30	Forward	99.906	0.094	3	0	3182
+126008850209_E	all_cons.fasta	validated_consensus_all.fasta	3161	3163	2	Forward	99.873	0.127	3	1	3161
